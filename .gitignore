@@ -1,0 +1,17 @@
+/build*/
+/dist/
+/lib/vst3sdk/
+/.vs/
+/CMakeUserPresets.json
+
+*.exp
+*.ilk
+*.lib
+*.log
+*.obj
+*.pdb
+*.suo
+*.user
+
+Desktop.ini
+Thumbs.db

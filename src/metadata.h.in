@@ -1,0 +1,19 @@
+#ifndef AUDIO_BRIDGE_VST_METADATA_H_
+#define AUDIO_BRIDGE_VST_METADATA_H_
+
+#define stringCompanyName "Audio-Bridge"
+#define stringCompanyWeb ""
+#define stringCompanyEmail ""
+#define stringPluginName "Audio-Bridge"
+#define FULL_VERSION_STR "@PROJECT_VERSION@"
+
+#include "pluginterfaces/base/funknown.h"
+
+namespace audio_bridge::vst {
+inline const auto kProcessorUID = Steinberg::FUID(
+    0x6f3d7f16, 0x8b0a4b55, 0xa83e73f0, 0x5a6c11d2);
+inline const auto kControllerUID = Steinberg::FUID(
+    0xe6dca2f4, 0x7d4b4d6c, 0x9fe5d2d0, 0x0b1269a7);
+}
+
+#endif
