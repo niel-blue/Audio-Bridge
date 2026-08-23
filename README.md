@@ -1,3 +1,5 @@
+[日本語](README.md) | [English](README_EN.md)
+
 # Audio-Bridge
 
 <img width="319" height="330" alt="スクリーンショット 2026-08-24 004649" src="https://github.com/user-attachments/assets/0fdaf94d-5f41-4e22-a824-215510e3a812" />
