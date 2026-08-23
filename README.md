@@ -3,7 +3,7 @@
 <img width="319" height="330" alt="スクリーンショット 2026-08-24 004649" src="https://github.com/user-attachments/assets/0fdaf94d-5f41-4e22-a824-215510e3a812" />
 
 
-Audio-Bridgeは、VST3内の音声とWindowsの音声デバイスを接続するWindows用プラグインです。ホストの通常入出力に加え、MME、DirectSound、WASAPIのデバイスを選択できます。
+Audio-Bridgeは、DAWやVSTホスト上から直接音声をWindowsの音声デバイスへ出力出来るVSTプラグインです。ホストの通常入出力に加え、MME、DirectSound、WASAPIのデバイスを選択できます。
 
 ## 主な機能
 
