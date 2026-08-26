@@ -4,18 +4,15 @@
 #include <mutex>
 #include <utility>
 
+#include "audio_device_ids.h"
 #include "legacy_io.h"
 #include "wasapi_io.h"
 
 namespace audio_bridge::audio {
 namespace {
 
-auto WasapiPayload(const std::string& id) -> std::string {
-  return id.starts_with("wasapi:") ? id.substr(7) : id;
-}
-
 auto IsLegacyId(const std::string& id) -> bool {
-  return id.starts_with("mme:") || id.starts_with("dsound:");
+  return device_ids::IsLegacy(id);
 }
 
 enum class BackendKind {
@@ -76,10 +73,14 @@ class AudioIo::Impl final {
     RecomputeStatus();
 
     auto wasapi_config = Config{};
-    wasapi_config.input_id = use_input_wasapi ? WasapiPayload(config.input_id) : "";
-    wasapi_config.output_id = use_output_wasapi ? WasapiPayload(config.output_id) : "";
+    wasapi_config.input_id =
+        use_input_wasapi ? device_ids::WasapiPayload(config.input_id) : "";
+    wasapi_config.output_id =
+        use_output_wasapi ? device_ids::WasapiPayload(config.output_id) : "";
     wasapi_config.exclusive = config.exclusive;
     wasapi_config.host_sample_rate = config.host_sample_rate;
+    wasapi_config.input_loopback =
+        use_input_wasapi && device_ids::IsWasapiLoopback(config.input_id);
 
     auto legacy_config = Config{};
     legacy_config.input_id = use_input_legacy ? config.input_id : "";

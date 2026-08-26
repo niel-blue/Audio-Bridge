@@ -1,5 +1,7 @@
 #include "audio_device_catalog.h"
 
+#include "audio_device_ids.h"
+
 #ifdef _WIN32
 
 #define NOMINMAX
@@ -70,7 +72,9 @@ auto WasapiName(IMMDevice* const device) -> std::string {
 }
 
 auto EnumerateWasapiDirection(IMMDeviceEnumerator* const enumerator,
-                              const EDataFlow direction)
+                              const EDataFlow direction,
+                              const char* const id_prefix,
+                              const DeviceBackend backend)
     -> std::vector<AudioDeviceInfo> {
   auto default_id = std::string{};
   ComPtr<IMMDevice> default_device;
@@ -100,9 +104,23 @@ auto EnumerateWasapiDirection(IMMDeviceEnumerator* const enumerator,
     if (raw_id.empty()) {
       continue;
     }
-    result.push_back({"wasapi:" + raw_id, WasapiName(device.Get()),
-                     DeviceBackend::kWasapi, raw_id == default_id});
+    result.push_back({std::string(id_prefix) + raw_id,
+                     WasapiName(device.Get()), backend,
+                     raw_id == default_id});
   }
+  return result;
+}
+
+auto EnumerateWasapiLoopbacks(IMMDeviceEnumerator* const enumerator)
+    -> std::vector<AudioDeviceInfo> {
+  auto result = EnumerateWasapiDirection(
+      enumerator, eRender, device_ids::kWasapiLoopbackPrefix.data(),
+      DeviceBackend::kWasapiLoopback);
+  result.insert(result.begin(),
+                {std::string(device_ids::kWasapiLoopbackPrefix) +
+                     std::string(device_ids::kDefaultWasapiPayload),
+                 "Default System Output",
+                 DeviceBackend::kWasapiLoopback, false});
   return result;
 }
 
@@ -207,6 +225,8 @@ auto DeviceBackendLabel(const DeviceBackend backend) -> const char* {
       return "Direct Sound";
     case DeviceBackend::kWasapi:
       return "WASAPI";
+    case DeviceBackend::kWasapiLoopback:
+      return "WASAPI Loopback";
   }
   return "Audio";
 }
@@ -235,8 +255,15 @@ auto EnumerateAudioDevices() -> AudioDeviceSnapshot {
       __uuidof(MMDeviceEnumerator), nullptr, CLSCTX_ALL,
       IID_PPV_ARGS(&enumerator));
   if (SUCCEEDED(create_result)) {
-    auto wasapi_inputs = EnumerateWasapiDirection(enumerator.Get(), eCapture);
-    auto wasapi_outputs = EnumerateWasapiDirection(enumerator.Get(), eRender);
+    auto wasapi_loopbacks = EnumerateWasapiLoopbacks(enumerator.Get());
+    auto wasapi_inputs = EnumerateWasapiDirection(
+        enumerator.Get(), eCapture, device_ids::kWasapiPrefix.data(),
+        DeviceBackend::kWasapi);
+    auto wasapi_outputs = EnumerateWasapiDirection(
+        enumerator.Get(), eRender, device_ids::kWasapiPrefix.data(),
+        DeviceBackend::kWasapi);
+    snapshot.inputs.insert(snapshot.inputs.begin(), wasapi_loopbacks.begin(),
+                           wasapi_loopbacks.end());
     snapshot.inputs.insert(snapshot.inputs.end(), wasapi_inputs.begin(),
                            wasapi_inputs.end());
     snapshot.outputs.insert(snapshot.outputs.end(), wasapi_outputs.begin(),
@@ -264,6 +291,8 @@ auto DeviceBackendLabel(const DeviceBackend backend) -> const char* {
       return "Direct Sound";
     case DeviceBackend::kWasapi:
       return "WASAPI";
+    case DeviceBackend::kWasapiLoopback:
+      return "WASAPI Loopback";
   }
   return "Audio";
 }

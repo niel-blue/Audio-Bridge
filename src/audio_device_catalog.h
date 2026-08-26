@@ -10,6 +10,7 @@ enum class DeviceBackend {
   kMme,
   kDirectSound,
   kWasapi,
+  kWasapiLoopback,
 };
 
 struct AudioDeviceInfo {

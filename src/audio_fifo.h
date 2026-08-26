@@ -21,7 +21,7 @@ class StereoFifo final {
 
   [[nodiscard]] auto Readable() const noexcept -> std::size_t {
     const auto write = write_.load(std::memory_order_acquire);
-    const auto read = read_.load(std::memory_order_relaxed);
+    const auto read = read_.load(std::memory_order_acquire);
     return write >= read ? std::min(write - read, capacity_) : 0U;
   }
 

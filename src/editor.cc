@@ -1,6 +1,7 @@
 #include "editor.h"
 
 #include "audio_device_catalog.h"
+#include "audio_device_ids.h"
 #include "controller.h"
 #include "editor_widgets.h"
 #include "parameters.h"
@@ -221,9 +222,10 @@ void Editor::RefreshDevices() {
   auto find_index = [](const std::vector<std::string>& ids,
                        const std::string& id) {
     auto it = std::find(ids.begin(), ids.end(), id);
-    if (it == ids.end() && !id.empty() && !id.starts_with("mme:") &&
-        !id.starts_with("dsound:") && !id.starts_with("wasapi:")) {
-      it = std::find(ids.begin(), ids.end(), "wasapi:" + id);
+    if (it == ids.end() && !id.empty() && !device_ids::IsLegacy(id) &&
+        !device_ids::IsWasapi(id) && !device_ids::IsWasapiLoopback(id)) {
+      it = std::find(ids.begin(), ids.end(),
+                     std::string(device_ids::kWasapiPrefix) + id);
     }
     return it == ids.end() ? 0 : static_cast<int>(it - ids.begin()) + 1;
   };

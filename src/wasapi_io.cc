@@ -1,7 +1,7 @@
 #include "wasapi_io.h"
 
+#include "audio_device_ids.h"
 #include "audio_fifo.h"
-#include "audio_resampler.h"
 
 #include <algorithm>
 #include <array>
@@ -10,6 +10,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
+#include <limits>
 #include <memory>
 #include <sstream>
 #include <string>
@@ -36,6 +37,7 @@ constexpr auto kEventFlags = AUDCLNT_STREAMFLAGS_EVENTCALLBACK;
 constexpr auto kDriftControlInterval = std::size_t{128U};
 constexpr auto kMaximumDriftCorrection = 0.001;
 constexpr auto kDriftControllerGain = 0.001;
+constexpr auto kTargetInputPeriods = 3U;
 constexpr auto kTargetOutputPeriods = 2U;
 
 struct CoTaskMemDeleter {
@@ -70,32 +72,51 @@ auto HResultText(const char* const operation, const HRESULT result)
   return stream.str();
 }
 
-auto IsFloatFormat(const WAVEFORMATEX& format) -> bool {
-  if (format.wFormatTag == WAVE_FORMAT_IEEE_FLOAT) {
-    return format.wBitsPerSample == 32;
-  }
+enum class SampleEncoding {
+  kUnsupported,
+  kFloat32,
+  kPcm8,
+  kPcm16,
+  kPcm24,
+  kPcm32,
+};
+
+auto IsExtensibleSubtype(const WAVEFORMATEX& format, const GUID& subtype)
+    -> bool {
   if (format.wFormatTag != WAVE_FORMAT_EXTENSIBLE ||
       format.cbSize < sizeof(WAVEFORMATEXTENSIBLE) - sizeof(WAVEFORMATEX)) {
     return false;
   }
   const auto& extensible =
       reinterpret_cast<const WAVEFORMATEXTENSIBLE&>(format);
-  return extensible.SubFormat == KSDATAFORMAT_SUBTYPE_IEEE_FLOAT &&
-         format.wBitsPerSample == 32;
+  return extensible.SubFormat == subtype;
 }
 
-auto IsPcm16Format(const WAVEFORMATEX& format) -> bool {
-  if (format.wFormatTag == WAVE_FORMAT_PCM) {
-    return format.wBitsPerSample == 16;
+auto EncodingFor(const WAVEFORMATEX& format) -> SampleEncoding {
+  if (format.wFormatTag == WAVE_FORMAT_IEEE_FLOAT) {
+    return format.wBitsPerSample == 32 ? SampleEncoding::kFloat32
+                                       : SampleEncoding::kUnsupported;
   }
-  if (format.wFormatTag != WAVE_FORMAT_EXTENSIBLE ||
-      format.cbSize < sizeof(WAVEFORMATEXTENSIBLE) - sizeof(WAVEFORMATEX)) {
-    return false;
+  if (IsExtensibleSubtype(format, KSDATAFORMAT_SUBTYPE_IEEE_FLOAT)) {
+    return format.wBitsPerSample == 32 ? SampleEncoding::kFloat32
+                                       : SampleEncoding::kUnsupported;
   }
-  const auto& extensible =
-      reinterpret_cast<const WAVEFORMATEXTENSIBLE&>(format);
-  return extensible.SubFormat == KSDATAFORMAT_SUBTYPE_PCM &&
-         format.wBitsPerSample == 16;
+  if (format.wFormatTag != WAVE_FORMAT_PCM &&
+      !IsExtensibleSubtype(format, KSDATAFORMAT_SUBTYPE_PCM)) {
+    return SampleEncoding::kUnsupported;
+  }
+  switch (format.wBitsPerSample) {
+    case 8:
+      return SampleEncoding::kPcm8;
+    case 16:
+      return SampleEncoding::kPcm16;
+    case 24:
+      return SampleEncoding::kPcm24;
+    case 32:
+      return SampleEncoding::kPcm32;
+    default:
+      return SampleEncoding::kUnsupported;
+  }
 }
 
 auto SupportsFormat(IAudioClient* const client, const AUDCLNT_SHAREMODE mode,
@@ -160,6 +181,23 @@ auto InitializeSharedClient(IAudioClient* const client,
   return result;
 }
 
+auto InitializeLoopbackClient(IAudioClient* const client,
+                              WAVEFORMATEX& format, UINT32& period_frames)
+    -> HRESULT {
+  const auto flags = static_cast<DWORD>(kEventFlags |
+                                        AUDCLNT_STREAMFLAGS_LOOPBACK);
+  const auto result = client->Initialize(AUDCLNT_SHAREMODE_SHARED, flags, 0, 0,
+                                         &format, nullptr);
+  if (SUCCEEDED(result)) {
+    REFERENCE_TIME device_period = 0;
+    if (SUCCEEDED(client->GetDevicePeriod(&device_period, nullptr))) {
+      period_frames = static_cast<UINT32>(std::max<REFERENCE_TIME>(
+          1, (device_period * format.nSamplesPerSec + 9999999) / 10000000));
+    }
+  }
+  return result;
+}
+
 auto InitializeExclusiveClient(IAudioClient* const client,
                                WAVEFORMATEX& format, UINT32& period_frames)
     -> HRESULT {
@@ -194,18 +232,53 @@ void ReadFrame(const BYTE* const data, const UINT32 frame,
     right = 0.0F;
     return;
   }
-  const auto offset = static_cast<std::size_t>(frame) * format.nChannels;
-  if (IsFloatFormat(format)) {
-    const auto* const samples = reinterpret_cast<const float*>(data);
-    left = samples[offset];
-    right = format.nChannels > 1U ? samples[offset + 1U] : left;
-  } else {
-    const auto* const samples = reinterpret_cast<const std::int16_t*>(data);
-    left = static_cast<float>(samples[offset]) / 32768.0F;
-    right = format.nChannels > 1U
-                ? static_cast<float>(samples[offset + 1U]) / 32768.0F
-                : left;
+  const auto encoding = EncodingFor(format);
+  const auto bytes_per_sample =
+      static_cast<std::size_t>(format.nBlockAlign) / format.nChannels;
+  if (bytes_per_sample == 0U) {
+    left = 0.0F;
+    right = 0.0F;
+    return;
   }
+  const auto* const frame_data =
+      data + static_cast<std::size_t>(frame) * format.nBlockAlign;
+  const auto read_channel = [encoding, bytes_per_sample,
+                             frame_data](const UINT32 channel) -> float {
+    const auto* const sample = frame_data + channel * bytes_per_sample;
+    switch (encoding) {
+      case SampleEncoding::kFloat32: {
+        auto value = 0.0F;
+        std::memcpy(&value, sample, sizeof(value));
+        return value;
+      }
+      case SampleEncoding::kPcm8:
+        return (static_cast<float>(sample[0]) - 128.0F) / 128.0F;
+      case SampleEncoding::kPcm16: {
+        auto value = std::int16_t{};
+        std::memcpy(&value, sample, sizeof(value));
+        return static_cast<float>(value) / 32768.0F;
+      }
+      case SampleEncoding::kPcm24: {
+        auto value = static_cast<std::int32_t>(sample[0]) |
+                     (static_cast<std::int32_t>(sample[1]) << 8) |
+                     (static_cast<std::int32_t>(sample[2]) << 16);
+        if ((value & 0x00800000) != 0) {
+          value |= static_cast<std::int32_t>(0xFF000000);
+        }
+        return static_cast<float>(value) / 8388608.0F;
+      }
+      case SampleEncoding::kPcm32: {
+        auto value = std::int32_t{};
+        std::memcpy(&value, sample, sizeof(value));
+        return static_cast<float>(static_cast<double>(value) / 2147483648.0);
+      }
+      case SampleEncoding::kUnsupported:
+        return 0.0F;
+    }
+    return 0.0F;
+  };
+  left = read_channel(0U);
+  right = format.nChannels > 1U ? read_channel(1U) : left;
 }
 
 void WriteFrame(BYTE* const data, const UINT32 frame,
@@ -214,42 +287,71 @@ void WriteFrame(BYTE* const data, const UINT32 frame,
   if (data == nullptr || format.nChannels == 0U) {
     return;
   }
-  const auto mono = (left + right) * 0.5F;
-  const auto offset = static_cast<std::size_t>(frame) * format.nChannels;
-  if (IsFloatFormat(format)) {
-    auto* const samples = reinterpret_cast<float*>(data);
-    for (auto channel = 0U; channel < format.nChannels; ++channel) {
-      samples[offset + channel] = format.nChannels == 1U
-                                      ? mono
-                                      : (channel == 0U ? left
-                                                       : (channel == 1U
-                                                              ? right
-                                                              : 0.0F));
-    }
+  const auto encoding = EncodingFor(format);
+  const auto bytes_per_sample =
+      static_cast<std::size_t>(format.nBlockAlign) / format.nChannels;
+  if (bytes_per_sample == 0U) {
     return;
   }
-  auto* const samples = reinterpret_cast<std::int16_t*>(data);
+  const auto mono = (left + right) * 0.5F;
+  auto* const frame_data =
+      data + static_cast<std::size_t>(frame) * format.nBlockAlign;
   for (auto channel = 0U; channel < format.nChannels; ++channel) {
     const auto value = format.nChannels == 1U
                            ? mono
                            : (channel == 0U ? left
                                             : (channel == 1U ? right : 0.0F));
-    samples[offset + channel] = static_cast<std::int16_t>(std::lrint(
-        std::clamp(value, -1.0F, 1.0F) * 32767.0F));
+    auto* const sample = frame_data + channel * bytes_per_sample;
+    const auto clipped = std::clamp(value, -1.0F, 1.0F);
+    switch (encoding) {
+      case SampleEncoding::kFloat32:
+        std::memcpy(sample, &clipped, sizeof(clipped));
+        break;
+      case SampleEncoding::kPcm8: {
+        const auto encoded = static_cast<BYTE>(std::clamp(
+            std::lrint(clipped * 127.0F) + 128L, 0L, 255L));
+        sample[0] = encoded;
+        break;
+      }
+      case SampleEncoding::kPcm16: {
+        const auto encoded = static_cast<std::int16_t>(
+            clipped <= -1.0F ? -32768 : std::lrint(clipped * 32767.0F));
+        std::memcpy(sample, &encoded, sizeof(encoded));
+        break;
+      }
+      case SampleEncoding::kPcm24: {
+        const auto encoded = static_cast<std::int32_t>(
+            clipped <= -1.0F ? -8388608 : std::lrint(clipped * 8388607.0F));
+        sample[0] = static_cast<BYTE>(encoded & 0xFF);
+        sample[1] = static_cast<BYTE>((encoded >> 8) & 0xFF);
+        sample[2] = static_cast<BYTE>((encoded >> 16) & 0xFF);
+        break;
+      }
+      case SampleEncoding::kPcm32: {
+        const auto encoded = static_cast<std::int32_t>(
+            clipped <= -1.0F
+                ? std::numeric_limits<std::int32_t>::min()
+                : std::llround(static_cast<double>(clipped) * 2147483647.0));
+        std::memcpy(sample, &encoded, sizeof(encoded));
+        break;
+      }
+      case SampleEncoding::kUnsupported:
+        break;
+    }
   }
 }
 
-// Reads host-rate samples for a device running on an independent clock.
-// The nominal rate conversion handles different sample-rate settings. The
-// small feedback correction keeps the FIFO near a target fill level when the
-// ASIO host clock and the WASAPI device clock differ by a few parts per
-// million. This is intentionally limited so the correction is not audible.
-class AdaptiveOutputReader final {
+// Reads samples across independently clocked devices. The source FIFO contains
+// the samples being converted, while the feedback FIFO indicates whether the
+// destination is gaining or losing buffered audio. For output they are the
+// same FIFO; for input they are the raw capture and host-rate FIFOs.
+class AdaptiveReader final {
  public:
-  AdaptiveOutputReader(StereoFifo& fifo, const double source_rate,
-                       const double destination_rate,
-                       const std::size_t target_fill)
-      : fifo_(fifo),
+  AdaptiveReader(StereoFifo& source_fifo, StereoFifo& feedback_fifo,
+                 const double source_rate, const double destination_rate,
+                 const std::size_t target_fill)
+      : source_fifo_(source_fifo),
+        feedback_fifo_(feedback_fifo),
         nominal_ratio_(source_rate > 0.0 && destination_rate > 0.0
                            ? source_rate / destination_rate
                            : 1.0),
@@ -259,8 +361,9 @@ class AdaptiveOutputReader final {
   void Next(float& left, float& right) noexcept {
     UpdateDriftCorrection();
     if (!initialized_) {
-      static_cast<void>(fifo_.Pop(&previous_left_, &previous_right_, 1U));
-      static_cast<void>(fifo_.Pop(&next_left_, &next_right_, 1U));
+      static_cast<void>(
+          source_fifo_.Pop(&previous_left_, &previous_right_, 1U));
+      static_cast<void>(source_fifo_.Pop(&next_left_, &next_right_, 1U));
       initialized_ = true;
     }
     left = previous_left_ + static_cast<float>(phase_) *
@@ -271,9 +374,26 @@ class AdaptiveOutputReader final {
     while (phase_ >= 1.0) {
       previous_left_ = next_left_;
       previous_right_ = next_right_;
-      static_cast<void>(fifo_.Pop(&next_left_, &next_right_, 1U));
+      static_cast<void>(source_fifo_.Pop(&next_left_, &next_right_, 1U));
       phase_ -= 1.0;
     }
+  }
+
+  void Reset() noexcept {
+    ratio_ = nominal_ratio_;
+    control_counter_ = 0U;
+    phase_ = 0.0;
+    previous_left_ = 0.0F;
+    previous_right_ = 0.0F;
+    next_left_ = 0.0F;
+    next_right_ = 0.0F;
+    initialized_ = false;
+  }
+
+  [[nodiscard]] auto RequiredSourceFrames() const noexcept -> std::size_t {
+    return 2U + static_cast<std::size_t>(
+                    std::ceil(nominal_ratio_ *
+                              (1.0 + kMaximumDriftCorrection)));
   }
 
  private:
@@ -283,7 +403,7 @@ class AdaptiveOutputReader final {
     }
     control_counter_ = 0U;
 
-    const auto readable = static_cast<double>(fifo_.Readable());
+    const auto readable = static_cast<double>(feedback_fifo_.Readable());
     const auto target = static_cast<double>(target_fill_);
     const auto normalized_error = (readable - target) / target;
     const auto correction = std::clamp(
@@ -292,7 +412,8 @@ class AdaptiveOutputReader final {
     ratio_ = nominal_ratio_ * (1.0 + correction);
   }
 
-  StereoFifo& fifo_;
+  StereoFifo& source_fifo_;
+  StereoFifo& feedback_fifo_;
   double nominal_ratio_ = 1.0;
   double ratio_ = 1.0;
   std::size_t target_fill_ = 2U;
@@ -313,47 +434,93 @@ struct Endpoint {
   double sample_rate = 0.0;
 };
 
-auto OpenEndpoint(IMMDeviceEnumerator* const enumerator,
-                  const std::string& device_id, const bool capture,
-                  const bool exclusive, const double host_rate,
-                  HANDLE event_handle, Endpoint& endpoint) -> std::string {
-  const auto wide_id = Utf8ToWide(device_id);
-  if (wide_id.empty()) {
-    return capture ? "No WASAPI input device was selected."
-                   : "No WASAPI output device was selected.";
-  }
+struct EndpointDevice {
   ComPtr<IMMDevice> device;
-  auto result = enumerator->GetDevice(wide_id.c_str(), &device);
+  std::wstring id;
+};
+
+enum class EndpointRole {
+  kCapture,
+  kLoopbackCapture,
+  kRender,
+};
+
+auto ResolveEndpointDevice(IMMDeviceEnumerator* const enumerator,
+                           const std::string& device_id,
+                           const EDataFlow direction,
+                           EndpointDevice& endpoint) -> std::string {
+  if (device_id.empty()) {
+    return direction == eCapture ? "No WASAPI input device was selected."
+                                 : "No WASAPI output device was selected.";
+  }
+  auto result = device_id == device_ids::kDefaultWasapiPayload
+                    ? enumerator->GetDefaultAudioEndpoint(
+                          direction, eConsole, &endpoint.device)
+                    : E_INVALIDARG;
+  if (device_id != device_ids::kDefaultWasapiPayload) {
+    const auto wide_id = Utf8ToWide(device_id);
+    if (wide_id.empty()) {
+      return "The selected WASAPI device ID is invalid.";
+    }
+    result = enumerator->GetDevice(wide_id.c_str(), &endpoint.device);
+  }
   if (FAILED(result)) {
-    return HResultText(capture ? "WASAPI input device lookup"
-                               : "WASAPI output device lookup",
+    return HResultText(direction == eCapture ? "WASAPI input device lookup"
+                                             : "WASAPI output device lookup",
                        result);
   }
-  result = device->Activate(__uuidof(IAudioClient), CLSCTX_ALL, nullptr,
-                            reinterpret_cast<void**>(endpoint.client.GetAddressOf()));
+  LPWSTR resolved_id = nullptr;
+  result = endpoint.device->GetId(&resolved_id);
+  if (FAILED(result) || resolved_id == nullptr) {
+    CoTaskMemFree(resolved_id);
+    return HResultText("WASAPI device ID query", result);
+  }
+  endpoint.id = resolved_id;
+  CoTaskMemFree(resolved_id);
+  return {};
+}
+
+auto OpenEndpoint(const EndpointDevice& device, const EndpointRole role,
+                  const bool requested_exclusive, const double host_rate,
+                  HANDLE event_handle, Endpoint& endpoint) -> std::string {
+  const auto loopback = role == EndpointRole::kLoopbackCapture;
+  const auto exclusive = requested_exclusive && !loopback;
+  auto result = device.device->Activate(
+      __uuidof(IAudioClient), CLSCTX_ALL, nullptr,
+      reinterpret_cast<void**>(endpoint.client.GetAddressOf()));
   if (FAILED(result)) {
     return HResultText("WASAPI audio client activation", result);
   }
 
-  auto requested = MakeRequestedFormat(host_rate);
-  auto mode = exclusive ? AUDCLNT_SHAREMODE_EXCLUSIVE : AUDCLNT_SHAREMODE_SHARED;
-  if (SupportsFormat(endpoint.client.Get(), mode, requested)) {
-    const auto bytes = sizeof(WAVEFORMATEX) + requested.cbSize;
-    auto* const raw = static_cast<WAVEFORMATEX*>(CoTaskMemAlloc(bytes));
-    if (raw == nullptr) {
-      return "WASAPI format allocation failed.";
-    }
-    std::memcpy(raw, &requested, bytes);
-    endpoint.format.reset(raw);
-  } else {
+  const auto mode = exclusive ? AUDCLNT_SHAREMODE_EXCLUSIVE
+                              : AUDCLNT_SHAREMODE_SHARED;
+  if (loopback) {
     WAVEFORMATEX* raw = nullptr;
     result = endpoint.client->GetMixFormat(&raw);
     endpoint.format.reset(raw);
     if (FAILED(result) || endpoint.format == nullptr) {
       return HResultText("WASAPI mix format", result);
     }
+  } else {
+    auto requested = MakeRequestedFormat(host_rate);
+    if (SupportsFormat(endpoint.client.Get(), mode, requested)) {
+      const auto bytes = sizeof(WAVEFORMATEX) + requested.cbSize;
+      auto* const raw = static_cast<WAVEFORMATEX*>(CoTaskMemAlloc(bytes));
+      if (raw == nullptr) {
+        return "WASAPI format allocation failed.";
+      }
+      std::memcpy(raw, &requested, bytes);
+      endpoint.format.reset(raw);
+    } else {
+      WAVEFORMATEX* raw = nullptr;
+      result = endpoint.client->GetMixFormat(&raw);
+      endpoint.format.reset(raw);
+      if (FAILED(result) || endpoint.format == nullptr) {
+        return HResultText("WASAPI mix format", result);
+      }
+    }
   }
-  if (!IsFloatFormat(*endpoint.format) && !IsPcm16Format(*endpoint.format)) {
+  if (EncodingFor(*endpoint.format) == SampleEncoding::kUnsupported) {
     return "The selected WASAPI device uses an unsupported format.";
   }
 
@@ -361,7 +528,10 @@ auto OpenEndpoint(IMMDeviceEnumerator* const enumerator,
                                     *endpoint.format)) {
     return "The selected device does not support its selected format in exclusive mode.";
   }
-  if (exclusive) {
+  if (loopback) {
+    result = InitializeLoopbackClient(endpoint.client.Get(), *endpoint.format,
+                                      endpoint.period_frames);
+  } else if (exclusive) {
     result = InitializeExclusiveClient(endpoint.client.Get(), *endpoint.format,
                                        endpoint.period_frames);
   } else {
@@ -383,14 +553,15 @@ auto OpenEndpoint(IMMDeviceEnumerator* const enumerator,
   return {};
 }
 
-auto OutputTargetFill(const Endpoint& endpoint, const double host_rate)
+auto TargetFillAtHostRate(const Endpoint& endpoint, const double host_rate,
+                          const unsigned periods)
     -> std::size_t {
   if (endpoint.period_frames == 0U || endpoint.sample_rate <= 0.0 ||
       host_rate <= 0.0) {
     return 512U;
   }
   const auto target = static_cast<double>(endpoint.period_frames) *
-                      static_cast<double>(kTargetOutputPeriods) * host_rate /
+                      static_cast<double>(periods) * host_rate /
                       endpoint.sample_rate;
   return std::clamp<std::size_t>(
       static_cast<std::size_t>(std::ceil(target)), 256U, kFifoCapacity / 4U);
@@ -419,6 +590,10 @@ class WasapiIo::Impl final {
     input_raw_.Clear();
     input_host_.Clear();
     output_host_.Clear();
+    input_target_fill_.store(0U, std::memory_order_release);
+    input_overrun_.store(false, std::memory_order_release);
+    input_reset_requested_.store(false, std::memory_order_release);
+    input_primed_.store(false, std::memory_order_release);
     config_ = config;
     status_.store(Status::kStarting, std::memory_order_release);
     Notify(Status::kStarting, {});
@@ -447,6 +622,10 @@ class WasapiIo::Impl final {
     input_raw_.Clear();
     input_host_.Clear();
     output_host_.Clear();
+    input_target_fill_.store(0U, std::memory_order_release);
+    input_overrun_.store(false, std::memory_order_release);
+    input_reset_requested_.store(false, std::memory_order_release);
+    input_primed_.store(false, std::memory_order_release);
     if (status_.load(std::memory_order_acquire) != Status::kOff) {
       status_.store(Status::kOff, std::memory_order_release);
       Notify(Status::kOff, {});
@@ -462,14 +641,61 @@ class WasapiIo::Impl final {
 
   void PopInputBlock(float* const left, float* const right,
                      const std::size_t count) noexcept {
-    if (input_enabled_.load(std::memory_order_relaxed)) {
-      static_cast<void>(input_host_.Pop(left, right, count));
-    } else if (left != nullptr) {
+    const auto write_silence = [left, right, count]() {
+      if (left == nullptr) {
+        return;
+      }
       std::fill_n(left, count, 0.0F);
       if (right != nullptr) {
         std::fill_n(right, count, 0.0F);
       }
+    };
+    if (!input_enabled_.load(std::memory_order_relaxed) || left == nullptr) {
+      write_silence();
+      return;
     }
+
+    const auto generation =
+        input_pipeline_generation_.load(std::memory_order_acquire);
+    if (generation != input_seen_generation_) {
+      input_seen_generation_ = generation;
+      input_host_.Clear();
+      input_primed_.store(false, std::memory_order_release);
+    }
+    if (input_reset_requested_.load(std::memory_order_acquire)) {
+      write_silence();
+      return;
+    }
+
+    const auto target = std::max<std::size_t>(
+        2U, input_target_fill_.load(std::memory_order_acquire));
+    const auto readable = input_host_.Readable();
+    const auto stale_threshold = std::min<std::size_t>(
+        kFifoCapacity / 2U,
+        std::max({target * 4U, count * 4U, std::size_t{1024U}}));
+    if (input_overrun_.exchange(false, std::memory_order_acq_rel) ||
+        readable > stale_threshold) {
+      input_host_.Clear();
+      input_reset_requested_.store(true, std::memory_order_release);
+      input_primed_.store(false, std::memory_order_release);
+      write_silence();
+      return;
+    }
+
+    const auto required = std::max(target, count);
+    if (!input_primed_.load(std::memory_order_acquire)) {
+      if (readable < required) {
+        write_silence();
+        return;
+      }
+      input_primed_.store(true, std::memory_order_release);
+    }
+    if (input_host_.Readable() < count) {
+      input_primed_.store(false, std::memory_order_release);
+      write_silence();
+      return;
+    }
+    static_cast<void>(input_host_.Pop(left, right, count));
   }
 
   [[nodiscard]] auto InputEnabled() const noexcept -> bool {
@@ -511,6 +737,7 @@ class WasapiIo::Impl final {
 
   void CaptureAvailable(IAudioCaptureClient* const capture,
                         const WAVEFORMATEX& format) {
+    ResetInputPipelineIfRequested();
     UINT32 packet_frames = 0U;
     while (SUCCEEDED(capture->GetNextPacketSize(&packet_frames)) &&
            packet_frames > 0U) {
@@ -529,7 +756,9 @@ class WasapiIo::Impl final {
         float left = 0.0F;
         float right = 0.0F;
         ReadFrame(data, frame, format, left, right);
-        static_cast<void>(input_raw_.Push(&left, &right, 1U));
+        if (input_raw_.Push(&left, &right, 1U) != 1U) {
+          input_overrun_.store(true, std::memory_order_release);
+        }
       }
       static_cast<void>(capture->ReleaseBuffer(frames));
     }
@@ -540,12 +769,26 @@ class WasapiIo::Impl final {
     if (input_resampler_ == nullptr) {
       return;
     }
-    while (input_host_.Writable() > 0U && input_raw_.Readable() >= 2U) {
+    const auto required = input_resampler_->RequiredSourceFrames();
+    while (input_host_.Writable() > 0U &&
+           input_raw_.Readable() >= required) {
       float left = 0.0F;
       float right = 0.0F;
       input_resampler_->Next(left, right);
       static_cast<void>(input_host_.Push(&left, &right, 1U));
     }
+  }
+
+  void ResetInputPipelineIfRequested() {
+    if (!input_reset_requested_.load(std::memory_order_acquire)) {
+      return;
+    }
+    input_raw_.Clear();
+    if (input_resampler_ != nullptr) {
+      input_resampler_->Reset();
+    }
+    input_pipeline_generation_.fetch_add(1U, std::memory_order_release);
+    input_reset_requested_.store(false, std::memory_order_release);
   }
 
   auto FillOutput(IAudioRenderClient* const render,
@@ -585,16 +828,33 @@ class WasapiIo::Impl final {
       return;
     }
 
+    EndpointDevice input_device;
+    EndpointDevice output_device;
     Endpoint input;
     Endpoint output;
     auto error = std::string{};
     if (InputEnabled()) {
-      error = OpenEndpoint(enumerator.Get(), config_.input_id, true,
-                           config_.exclusive, config_.host_sample_rate,
-                           input_event_, input);
+      error = ResolveEndpointDevice(
+          enumerator.Get(), config_.input_id,
+          config_.input_loopback ? eRender : eCapture, input_device);
     }
     if (error.empty() && OutputEnabled()) {
-      error = OpenEndpoint(enumerator.Get(), config_.output_id, false,
+      error = ResolveEndpointDevice(enumerator.Get(), config_.output_id,
+                                    eRender, output_device);
+    }
+    if (error.empty() && InputEnabled() && OutputEnabled() &&
+        config_.input_loopback && input_device.id == output_device.id) {
+      error = "The WASAPI loopback source and output device must be different to prevent audio feedback.";
+    }
+    if (error.empty() && InputEnabled()) {
+      error = OpenEndpoint(
+          input_device,
+          config_.input_loopback ? EndpointRole::kLoopbackCapture
+                                 : EndpointRole::kCapture,
+          config_.exclusive, config_.host_sample_rate, input_event_, input);
+    }
+    if (error.empty() && OutputEnabled()) {
+      error = OpenEndpoint(output_device, EndpointRole::kRender,
                            config_.exclusive, config_.host_sample_rate,
                            output_event_, output);
     }
@@ -617,8 +877,13 @@ class WasapiIo::Impl final {
         }
         return;
       }
-      input_resampler_ = std::make_unique<LinearReader>(
-          input_raw_, input.sample_rate, config_.host_sample_rate);
+      const auto target = TargetFillAtHostRate(
+          input, config_.host_sample_rate, kTargetInputPeriods);
+      input_resampler_ = std::make_unique<AdaptiveReader>(
+          input_raw_, input_host_, input.sample_rate,
+          config_.host_sample_rate, target);
+      input_target_fill_.store(target, std::memory_order_release);
+      input_pipeline_generation_.fetch_add(1U, std::memory_order_release);
     }
     if (OutputEnabled()) {
       result = output.client->GetService(IID_PPV_ARGS(&render));
@@ -629,9 +894,11 @@ class WasapiIo::Impl final {
         }
         return;
       }
-      output_resampler_ = std::make_unique<AdaptiveOutputReader>(
-          output_host_, config_.host_sample_rate, output.sample_rate,
-          OutputTargetFill(output, config_.host_sample_rate));
+      output_resampler_ = std::make_unique<AdaptiveReader>(
+          output_host_, output_host_, config_.host_sample_rate,
+          output.sample_rate,
+          TargetFillAtHostRate(output, config_.host_sample_rate,
+                               kTargetOutputPeriods));
       result = FillOutput(render.Get(), *output.format, output.buffer_frames);
       if (FAILED(result)) {
         SetUnavailable(HResultText("WASAPI initial output buffer", result));
@@ -719,11 +986,17 @@ class WasapiIo::Impl final {
   StereoFifo input_host_;
   StereoFifo output_host_;
   Config config_;
-  std::unique_ptr<LinearReader> input_resampler_;
-  std::unique_ptr<AdaptiveOutputReader> output_resampler_;
+  std::unique_ptr<AdaptiveReader> input_resampler_;
+  std::unique_ptr<AdaptiveReader> output_resampler_;
   std::atomic<Status> status_{Status::kOff};
   std::atomic<bool> input_enabled_{false};
   std::atomic<bool> output_enabled_{false};
+  std::atomic<std::size_t> input_target_fill_{0U};
+  std::atomic<std::size_t> input_pipeline_generation_{0U};
+  std::atomic<bool> input_overrun_{false};
+  std::atomic<bool> input_reset_requested_{false};
+  std::atomic<bool> input_primed_{false};
+  std::size_t input_seen_generation_ = 0U;
   HANDLE stop_event_ = nullptr;
   HANDLE input_event_ = nullptr;
   HANDLE output_event_ = nullptr;
