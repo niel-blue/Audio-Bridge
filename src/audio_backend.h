@@ -18,7 +18,6 @@ struct Config {
   std::string output_id;
   bool exclusive = false;
   double host_sample_rate = 0.0;
-  bool input_loopback = false;
 };
 
 using StatusCallback = std::function<void(Status, const std::string&)>;

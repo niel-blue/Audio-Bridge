@@ -53,6 +53,7 @@ class Editor final : public Steinberg::Vst::VSTGUIEditor,
   VSTGUI::CFontRef strong_font_ = nullptr;
   VSTGUI::COptionMenu* input_menu_ = nullptr;
   VSTGUI::COptionMenu* output_menu_ = nullptr;
+  VSTGUI::CTextButton* input_refresh_ = nullptr;
   VSTGUI::CCheckBox* exclusive_checkbox_ = nullptr;
   VSTGUI::CHorizontalSlider* input_gain_ = nullptr;
   VSTGUI::CHorizontalSlider* output_gain_ = nullptr;

@@ -111,19 +111,6 @@ auto EnumerateWasapiDirection(IMMDeviceEnumerator* const enumerator,
   return result;
 }
 
-auto EnumerateWasapiLoopbacks(IMMDeviceEnumerator* const enumerator)
-    -> std::vector<AudioDeviceInfo> {
-  auto result = EnumerateWasapiDirection(
-      enumerator, eRender, device_ids::kWasapiLoopbackPrefix.data(),
-      DeviceBackend::kWasapiLoopback);
-  result.insert(result.begin(),
-                {std::string(device_ids::kWasapiLoopbackPrefix) +
-                     std::string(device_ids::kDefaultWasapiPayload),
-                 "Default System Output",
-                 DeviceBackend::kWasapiLoopback, false});
-  return result;
-}
-
 auto MmeName(const wchar_t* const name, const char* const fallback)
     -> std::string {
   const auto result = WideToUtf8(name);
@@ -225,8 +212,6 @@ auto DeviceBackendLabel(const DeviceBackend backend) -> const char* {
       return "Direct Sound";
     case DeviceBackend::kWasapi:
       return "WASAPI";
-    case DeviceBackend::kWasapiLoopback:
-      return "WASAPI Loopback";
   }
   return "Audio";
 }
@@ -255,15 +240,12 @@ auto EnumerateAudioDevices() -> AudioDeviceSnapshot {
       __uuidof(MMDeviceEnumerator), nullptr, CLSCTX_ALL,
       IID_PPV_ARGS(&enumerator));
   if (SUCCEEDED(create_result)) {
-    auto wasapi_loopbacks = EnumerateWasapiLoopbacks(enumerator.Get());
     auto wasapi_inputs = EnumerateWasapiDirection(
         enumerator.Get(), eCapture, device_ids::kWasapiPrefix.data(),
         DeviceBackend::kWasapi);
     auto wasapi_outputs = EnumerateWasapiDirection(
         enumerator.Get(), eRender, device_ids::kWasapiPrefix.data(),
         DeviceBackend::kWasapi);
-    snapshot.inputs.insert(snapshot.inputs.begin(), wasapi_loopbacks.begin(),
-                           wasapi_loopbacks.end());
     snapshot.inputs.insert(snapshot.inputs.end(), wasapi_inputs.begin(),
                            wasapi_inputs.end());
     snapshot.outputs.insert(snapshot.outputs.end(), wasapi_outputs.begin(),
@@ -291,8 +273,6 @@ auto DeviceBackendLabel(const DeviceBackend backend) -> const char* {
       return "Direct Sound";
     case DeviceBackend::kWasapi:
       return "WASAPI";
-    case DeviceBackend::kWasapiLoopback:
-      return "WASAPI Loopback";
   }
   return "Audio";
 }

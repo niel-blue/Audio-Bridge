@@ -2,22 +2,24 @@
 
 # Audio-Bridge
 
+Current release: `0.3.1`
+
 <img width="319" height="330" alt="Audio-Bridge screenshot" src="https://github.com/user-attachments/assets/0fdaf94d-5f41-4e22-a824-215510e3a812" />
 
-Audio-Bridge is a VST plug-in that lets a DAW or VST host route audio directly to and from Windows audio devices. In addition to the host's standard audio input and output, it supports MME, DirectSound, WASAPI, and system-audio capture through WASAPI loopback.
+Audio-Bridge is a VST plug-in that lets a DAW or VST host route audio directly to and from Windows audio devices. In addition to the host's standard audio input and output, it supports MME, DirectSound, WASAPI, and per-application audio input.
 
 ## Features
 
 - Input and output gain: -30 to +30 dB
 - Output delay: 0 to 2000 ms
-- System-audio input through WASAPI loopback
+- Per-application audio input through Application Input
 - MME, DirectSound, and WASAPI shared/exclusive modes
 - Clock drift compensation between the host and external devices
 - VST3 state storage for gain, delay, device selection, and other settings
 
 When no external device is selected, Audio-Bridge behaves like a standard VST plug-in and passes audio from the host input to the host output. Selecting an external input or output switches that side to the external device route instead of mixing it with the host route.
 
-Choose the default system output or a specific playback device from the `[WASAPI Loopback]` entries under INPUT SOURCE to capture audio playing through that device. Loopback capture always uses WASAPI shared mode. Audio-Bridge blocks direct WASAPI output to the same endpoint to prevent feedback. Feedback is still possible if the DAW or another audio API routes the signal back to the captured endpoint.
+Choose an application with a Windows render-audio session from the `[Application Input]` entries under INPUT SOURCE to capture only that application's process tree. This is per-application input, not the old system-wide loopback source. Use `REFRESH` to update the application list. An application can appear only after it has started producing audio. The VST state stores only its executable identity; the current process ID is resolved each time the source starts.
 
 Audio-Bridge does not open ASIO drivers directly. When used in a DAW or VST host running with ASIO, it can handle ASIO audio through the host's standard input and output route.
 
@@ -25,7 +27,7 @@ Audio-Bridge does not store settings in the Windows Registry or in its own confi
 
 ## Requirements
 
-- Windows 10 version 1703 or later, or Windows 11 x64
+- Windows 10 version 2004 or later, or Windows 11 x64 when using Application Input
 - A DAW or VST host with VST3 support
 
 ## Installation

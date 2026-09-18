@@ -2,6 +2,7 @@
 
 #include "audio_device_catalog.h"
 #include "audio_device_ids.h"
+#include "application_input.h"
 #include "controller.h"
 #include "editor_widgets.h"
 #include "parameters.h"
@@ -13,6 +14,7 @@
 #include "pluginterfaces/base/smartpointer.h"
 #include "vstgui4/vstgui/lib/cfont.h"
 #include "vstgui4/vstgui/lib/cframe.h"
+#include "vstgui4/vstgui/lib/cgradient.h"
 #include "vstgui4/vstgui/lib/cviewcontainer.h"
 #include "vstgui4/vstgui/lib/cvstguitimer.h"
 
@@ -75,6 +77,22 @@ void Editor::BuildFrame(void* const parent) {
 
   input_menu_ = ui::AddDeviceMenu(input_panel, this, "INPUT SOURCE",
                                   heading_font_, small_font_);
+  input_refresh_ = new VSTGUI::CTextButton(
+      VSTGUI::CRect(246, 4, 302, 19), this, -1, "REFRESH");
+  input_refresh_->setFont(small_font_);
+  input_refresh_->setTextColor(ui::palette::kText);
+  input_refresh_->setTextColorHighlighted(ui::palette::kText);
+  input_refresh_->setFrameColor(ui::palette::kAccentDim);
+  input_refresh_->setFrameColorHighlighted(ui::palette::kAccent);
+  auto* const refresh_gradient = VSTGUI::CGradient::create(
+      0, 1, ui::palette::kPanelRaised, ui::palette::kAccentDim);
+  input_refresh_->setGradient(refresh_gradient);
+  input_refresh_->setGradientHighlighted(refresh_gradient);
+  refresh_gradient->forget();
+  input_refresh_->setRoundRadius(2.0);
+  input_refresh_->setFrameWidth(1.0);
+  input_refresh_->setTextMargin(1.0);
+  input_panel->addView(input_refresh_);
   output_menu_ = ui::AddDeviceMenu(output_panel, this, "OUTPUT DESTINATION",
                                    heading_font_, small_font_);
   input_meter_ = ui::AddLevelMeter(input_panel, 52);
@@ -151,6 +169,7 @@ void PLUGIN_API Editor::close() {
   }
   input_menu_ = nullptr;
   output_menu_ = nullptr;
+  input_refresh_ = nullptr;
   exclusive_checkbox_ = nullptr;
   input_gain_ = nullptr;
   output_gain_ = nullptr;
@@ -194,6 +213,35 @@ void Editor::RefreshDevices() {
   output_menu_->addEntry("OFF");
   input_ids_.clear();
   output_ids_.clear();
+  auto* const controller = static_cast<Controller*>(getController());
+  if (controller == nullptr) {
+    return;
+  }
+  auto input_id = std::string{};
+  auto output_id = std::string{};
+  auto exclusive = false;
+  auto host_input_connected = false;
+  auto host_output_connected = false;
+  controller->GetDeviceSelection(input_id, output_id, exclusive);
+  controller->GetHostRoutes(host_input_connected, host_output_connected);
+
+  auto applications =
+      audio::EnumerateApplicationInputs(audio::CurrentApplicationInputExclusions());
+  if (device_ids::IsApplicationInput(input_id)) {
+    applications = audio::MergeRememberedApplicationInput(
+        std::move(applications), device_ids::ApplicationInputPayload(input_id),
+        audio::CurrentApplicationInputExclusions());
+  }
+  for (const auto& application : applications.applications) {
+    input_ids_.push_back(
+        device_ids::MakeApplicationInputId(application.identity));
+    auto name = std::string("[Application Input] ") +
+                application.display_name;
+    if (application.process_id == 0) {
+      name += "  (Not running)";
+    }
+    input_menu_->addEntry(name.c_str());
+  }
   const auto snapshot = EnumerateAudioDevices();
   for (const auto& device : snapshot.inputs) {
     input_ids_.push_back(device.id);
@@ -207,23 +255,12 @@ void Editor::RefreshDevices() {
                 device.name + (device.is_default ? "  (Default)" : "");
     output_menu_->addEntry(name.c_str());
   }
-  auto* const controller = static_cast<Controller*>(getController());
-  if (controller == nullptr) {
-    return;
-  }
-  auto input_id = std::string{};
-  auto output_id = std::string{};
-  auto exclusive = false;
-  auto host_input_connected = false;
-  auto host_output_connected = false;
-  controller->GetDeviceSelection(input_id, output_id, exclusive);
-  controller->GetHostRoutes(host_input_connected, host_output_connected);
   UpdateHostRouteLabels(host_input_connected, host_output_connected);
   auto find_index = [](const std::vector<std::string>& ids,
                        const std::string& id) {
     auto it = std::find(ids.begin(), ids.end(), id);
     if (it == ids.end() && !id.empty() && !device_ids::IsLegacy(id) &&
-        !device_ids::IsWasapi(id) && !device_ids::IsWasapiLoopback(id)) {
+        !device_ids::IsWasapi(id) && !device_ids::IsApplicationInput(id)) {
       it = std::find(ids.begin(), ids.end(),
                      std::string(device_ids::kWasapiPrefix) + id);
     }
@@ -402,6 +439,11 @@ void Editor::valueChanged(CControl* const control) {
     return;
   }
   if (control == input_menu_ || control == output_menu_) {
+    SendDeviceConfig();
+    return;
+  }
+  if (control == input_refresh_) {
+    RefreshDevices();
     SendDeviceConfig();
     return;
   }

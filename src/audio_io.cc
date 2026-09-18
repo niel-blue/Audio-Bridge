@@ -5,6 +5,7 @@
 #include <utility>
 
 #include "audio_device_ids.h"
+#include "application_input.h"
 #include "legacy_io.h"
 #include "wasapi_io.h"
 
@@ -17,6 +18,7 @@ auto IsLegacyId(const std::string& id) -> bool {
 
 enum class BackendKind {
   kNone,
+  kApplication,
   kWasapi,
   kLegacy,
 };
@@ -24,6 +26,9 @@ enum class BackendKind {
 auto BackendForId(const std::string& id) -> BackendKind {
   if (id.empty()) {
     return BackendKind::kNone;
+  }
+  if (device_ids::IsApplicationInput(id)) {
+    return BackendKind::kApplication;
   }
   return IsLegacyId(id) ? BackendKind::kLegacy : BackendKind::kWasapi;
 }
@@ -39,6 +44,9 @@ class AudioIo::Impl final {
         }),
         legacy_([this](const Status status, const std::string& error) {
           OnBackendStatus(false, status, error);
+        }),
+        application_([this](const Status status, const std::string& error) {
+          OnApplicationStatus(status, error);
         }) {}
 
   ~Impl() { Stop(); }
@@ -47,6 +55,7 @@ class AudioIo::Impl final {
     Stop();
     bool start_wasapi = false;
     bool start_legacy = false;
+    bool start_application = false;
     bool use_input_wasapi = false;
     bool use_output_wasapi = false;
     bool use_input_legacy = false;
@@ -59,14 +68,18 @@ class AudioIo::Impl final {
                      output_backend_ == BackendKind::kWasapi;
       start_legacy = input_backend_ == BackendKind::kLegacy ||
                      output_backend_ == BackendKind::kLegacy;
+      start_application = input_backend_ == BackendKind::kApplication;
       use_input_wasapi = input_backend_ == BackendKind::kWasapi;
       use_output_wasapi = output_backend_ == BackendKind::kWasapi;
       use_input_legacy = input_backend_ == BackendKind::kLegacy;
       use_output_legacy = output_backend_ == BackendKind::kLegacy;
       wasapi_status_ = start_wasapi ? Status::kStarting : Status::kOff;
       legacy_status_ = start_legacy ? Status::kStarting : Status::kOff;
+      application_status_ =
+          start_application ? Status::kStarting : Status::kOff;
       wasapi_error_.clear();
       legacy_error_.clear();
+      application_error_.clear();
     }
     input_enabled_.store(!config.input_id.empty(), std::memory_order_release);
     output_enabled_.store(!config.output_id.empty(), std::memory_order_release);
@@ -79,9 +92,6 @@ class AudioIo::Impl final {
         use_output_wasapi ? device_ids::WasapiPayload(config.output_id) : "";
     wasapi_config.exclusive = config.exclusive;
     wasapi_config.host_sample_rate = config.host_sample_rate;
-    wasapi_config.input_loopback =
-        use_input_wasapi && device_ids::IsWasapiLoopback(config.input_id);
-
     auto legacy_config = Config{};
     legacy_config.input_id = use_input_legacy ? config.input_id : "";
     legacy_config.output_id = use_output_legacy ? config.output_id : "";
@@ -94,12 +104,29 @@ class AudioIo::Impl final {
     if (start_legacy) {
       legacy_.Start(legacy_config);
     }
+    if (start_application) {
+      const auto identity = device_ids::ApplicationInputPayload(config.input_id);
+      const auto snapshot =
+          EnumerateApplicationInputs(CurrentApplicationInputExclusions());
+      const auto source = FindApplicationInput(snapshot, identity);
+      if (!source.has_value() || source->process_id == 0) {
+        OnApplicationStatus(
+            Status::kUnavailable,
+            snapshot.error.empty()
+                ? "The selected Application Input is not running. Refresh the list after starting it."
+                : snapshot.error);
+      } else {
+        static_cast<void>(
+            application_.Start(source->process_id, config.host_sample_rate));
+      }
+    }
     RecomputeStatus();
   }
 
   void Stop() noexcept {
     wasapi_.Stop();
     legacy_.Stop();
+    application_.Stop();
     input_enabled_.store(false, std::memory_order_release);
     output_enabled_.store(false, std::memory_order_release);
     {
@@ -108,8 +135,10 @@ class AudioIo::Impl final {
       output_backend_ = BackendKind::kNone;
       wasapi_status_ = Status::kOff;
       legacy_status_ = Status::kOff;
+      application_status_ = Status::kOff;
       wasapi_error_.clear();
       legacy_error_.clear();
+      application_error_.clear();
     }
     RecomputeStatus();
   }
@@ -124,15 +153,19 @@ class AudioIo::Impl final {
                      const std::size_t count) noexcept {
     bool use_wasapi = false;
     bool use_legacy = false;
+    bool use_application = false;
     {
       const auto lock = std::lock_guard(state_mutex_);
       use_wasapi = input_backend_ == BackendKind::kWasapi;
       use_legacy = input_backend_ == BackendKind::kLegacy;
+      use_application = input_backend_ == BackendKind::kApplication;
     }
     if (use_wasapi) {
       wasapi_.PopInputBlock(left, right, count);
     } else if (use_legacy) {
       legacy_.PopInputBlock(left, right, count);
+    } else if (use_application) {
+      static_cast<void>(application_.Read(left, right, count));
     } else {
       if (left != nullptr) {
         std::fill_n(left, count, 0.0F);
@@ -169,6 +202,15 @@ class AudioIo::Impl final {
     RecomputeStatus();
   }
 
+  void OnApplicationStatus(const Status status, const std::string& error) {
+    {
+      const auto lock = std::lock_guard(state_mutex_);
+      application_status_ = status;
+      application_error_ = error;
+    }
+    RecomputeStatus();
+  }
+
   void RecomputeStatus() {
     auto next = Status::kOff;
     auto error = std::string{};
@@ -180,19 +222,28 @@ class AudioIo::Impl final {
       const auto selected_legacy =
           input_backend_ == BackendKind::kLegacy ||
           output_backend_ == BackendKind::kLegacy;
-      if (selected_wasapi || selected_legacy) {
+      const auto selected_application =
+          input_backend_ == BackendKind::kApplication;
+      if (selected_wasapi || selected_legacy || selected_application) {
         const auto unavailable =
             (selected_wasapi && wasapi_status_ == Status::kUnavailable) ||
-            (selected_legacy && legacy_status_ == Status::kUnavailable);
+            (selected_legacy && legacy_status_ == Status::kUnavailable) ||
+            (selected_application &&
+             application_status_ == Status::kUnavailable);
         const auto starting =
             (selected_wasapi && wasapi_status_ == Status::kStarting) ||
-            (selected_legacy && legacy_status_ == Status::kStarting);
+            (selected_legacy && legacy_status_ == Status::kStarting) ||
+            (selected_application && application_status_ == Status::kStarting);
         const auto active =
             (!selected_wasapi || wasapi_status_ == Status::kActive) &&
-            (!selected_legacy || legacy_status_ == Status::kActive);
+            (!selected_legacy || legacy_status_ == Status::kActive) &&
+            (!selected_application || application_status_ == Status::kActive);
         if (unavailable) {
           next = Status::kUnavailable;
-          error = !wasapi_error_.empty() ? wasapi_error_ : legacy_error_;
+          error = !wasapi_error_.empty()
+                      ? wasapi_error_
+                      : (!legacy_error_.empty() ? legacy_error_
+                                                 : application_error_);
         } else if (starting || !active) {
           next = Status::kStarting;
         } else {
@@ -212,6 +263,7 @@ class AudioIo::Impl final {
   StatusCallback callback_;
   WasapiIo wasapi_;
   LegacyIo legacy_;
+  ApplicationInput application_;
   mutable std::mutex state_mutex_;
   std::atomic<Status> status_{Status::kOff};
   std::atomic<bool> input_enabled_{false};
@@ -220,8 +272,10 @@ class AudioIo::Impl final {
   BackendKind output_backend_ = BackendKind::kNone;
   Status wasapi_status_ = Status::kOff;
   Status legacy_status_ = Status::kOff;
+  Status application_status_ = Status::kOff;
   std::string wasapi_error_;
   std::string legacy_error_;
+  std::string application_error_;
 };
 
 AudioIo::AudioIo(StatusCallback callback)

@@ -181,23 +181,6 @@ auto InitializeSharedClient(IAudioClient* const client,
   return result;
 }
 
-auto InitializeLoopbackClient(IAudioClient* const client,
-                              WAVEFORMATEX& format, UINT32& period_frames)
-    -> HRESULT {
-  const auto flags = static_cast<DWORD>(kEventFlags |
-                                        AUDCLNT_STREAMFLAGS_LOOPBACK);
-  const auto result = client->Initialize(AUDCLNT_SHAREMODE_SHARED, flags, 0, 0,
-                                         &format, nullptr);
-  if (SUCCEEDED(result)) {
-    REFERENCE_TIME device_period = 0;
-    if (SUCCEEDED(client->GetDevicePeriod(&device_period, nullptr))) {
-      period_frames = static_cast<UINT32>(std::max<REFERENCE_TIME>(
-          1, (device_period * format.nSamplesPerSec + 9999999) / 10000000));
-    }
-  }
-  return result;
-}
-
 auto InitializeExclusiveClient(IAudioClient* const client,
                                WAVEFORMATEX& format, UINT32& period_frames)
     -> HRESULT {
@@ -441,7 +424,6 @@ struct EndpointDevice {
 
 enum class EndpointRole {
   kCapture,
-  kLoopbackCapture,
   kRender,
 };
 
@@ -483,8 +465,7 @@ auto ResolveEndpointDevice(IMMDeviceEnumerator* const enumerator,
 auto OpenEndpoint(const EndpointDevice& device, const EndpointRole role,
                   const bool requested_exclusive, const double host_rate,
                   HANDLE event_handle, Endpoint& endpoint) -> std::string {
-  const auto loopback = role == EndpointRole::kLoopbackCapture;
-  const auto exclusive = requested_exclusive && !loopback;
+  const auto exclusive = requested_exclusive;
   auto result = device.device->Activate(
       __uuidof(IAudioClient), CLSCTX_ALL, nullptr,
       reinterpret_cast<void**>(endpoint.client.GetAddressOf()));
@@ -494,30 +475,21 @@ auto OpenEndpoint(const EndpointDevice& device, const EndpointRole role,
 
   const auto mode = exclusive ? AUDCLNT_SHAREMODE_EXCLUSIVE
                               : AUDCLNT_SHAREMODE_SHARED;
-  if (loopback) {
+  auto requested = MakeRequestedFormat(host_rate);
+  if (SupportsFormat(endpoint.client.Get(), mode, requested)) {
+    const auto bytes = sizeof(WAVEFORMATEX) + requested.cbSize;
+    auto* const raw = static_cast<WAVEFORMATEX*>(CoTaskMemAlloc(bytes));
+    if (raw == nullptr) {
+      return "WASAPI format allocation failed.";
+    }
+    std::memcpy(raw, &requested, bytes);
+    endpoint.format.reset(raw);
+  } else {
     WAVEFORMATEX* raw = nullptr;
     result = endpoint.client->GetMixFormat(&raw);
     endpoint.format.reset(raw);
     if (FAILED(result) || endpoint.format == nullptr) {
       return HResultText("WASAPI mix format", result);
-    }
-  } else {
-    auto requested = MakeRequestedFormat(host_rate);
-    if (SupportsFormat(endpoint.client.Get(), mode, requested)) {
-      const auto bytes = sizeof(WAVEFORMATEX) + requested.cbSize;
-      auto* const raw = static_cast<WAVEFORMATEX*>(CoTaskMemAlloc(bytes));
-      if (raw == nullptr) {
-        return "WASAPI format allocation failed.";
-      }
-      std::memcpy(raw, &requested, bytes);
-      endpoint.format.reset(raw);
-    } else {
-      WAVEFORMATEX* raw = nullptr;
-      result = endpoint.client->GetMixFormat(&raw);
-      endpoint.format.reset(raw);
-      if (FAILED(result) || endpoint.format == nullptr) {
-        return HResultText("WASAPI mix format", result);
-      }
     }
   }
   if (EncodingFor(*endpoint.format) == SampleEncoding::kUnsupported) {
@@ -528,10 +500,7 @@ auto OpenEndpoint(const EndpointDevice& device, const EndpointRole role,
                                     *endpoint.format)) {
     return "The selected device does not support its selected format in exclusive mode.";
   }
-  if (loopback) {
-    result = InitializeLoopbackClient(endpoint.client.Get(), *endpoint.format,
-                                      endpoint.period_frames);
-  } else if (exclusive) {
+  if (exclusive) {
     result = InitializeExclusiveClient(endpoint.client.Get(), *endpoint.format,
                                        endpoint.period_frames);
   } else {
@@ -834,24 +803,17 @@ class WasapiIo::Impl final {
     Endpoint output;
     auto error = std::string{};
     if (InputEnabled()) {
-      error = ResolveEndpointDevice(
-          enumerator.Get(), config_.input_id,
-          config_.input_loopback ? eRender : eCapture, input_device);
+      error = ResolveEndpointDevice(enumerator.Get(), config_.input_id,
+                                    eCapture, input_device);
     }
     if (error.empty() && OutputEnabled()) {
       error = ResolveEndpointDevice(enumerator.Get(), config_.output_id,
                                     eRender, output_device);
     }
-    if (error.empty() && InputEnabled() && OutputEnabled() &&
-        config_.input_loopback && input_device.id == output_device.id) {
-      error = "The WASAPI loopback source and output device must be different to prevent audio feedback.";
-    }
     if (error.empty() && InputEnabled()) {
-      error = OpenEndpoint(
-          input_device,
-          config_.input_loopback ? EndpointRole::kLoopbackCapture
-                                 : EndpointRole::kCapture,
-          config_.exclusive, config_.host_sample_rate, input_event_, input);
+      error = OpenEndpoint(input_device, EndpointRole::kCapture,
+                           config_.exclusive, config_.host_sample_rate,
+                           input_event_, input);
     }
     if (error.empty() && OutputEnabled()) {
       error = OpenEndpoint(output_device, EndpointRole::kRender,

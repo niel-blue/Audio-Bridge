@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.25)
 
-project(AudioBridge VERSION 0.2.0 LANGUAGES CXX)
+project(AudioBridge VERSION 0.3.1 LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -79,6 +79,7 @@ smtg_add_vst3plugin(${target} PACKAGE_NAME "Audio-Bridge" SOURCES_LIST
 
   # Audio processing and Windows device backends
   src/output_delay.cc
+  src/application_input.cc
   src/audio_device_catalog.cc
   src/audio_io.cc
   src/legacy_io.cc
@@ -94,7 +95,7 @@ target_include_directories(${target} PRIVATE
 target_link_libraries(${target} PRIVATE sdk vstgui_support)
 
 if(WIN32)
-  target_link_libraries(${target} PRIVATE ole32 uuid winmm dsound dxguid)
+  target_link_libraries(${target} PRIVATE ole32 uuid winmm dsound dxguid mmdevapi)
 endif()
 
 set_property(TARGET ${target} PROPERTY CXX_EXTENSIONS OFF)
