@@ -75,7 +75,7 @@ void Editor::BuildFrame(void* const parent) {
   root->addView(input_panel);
   root->addView(output_panel);
 
-  input_menu_ = ui::AddDeviceMenu(input_panel, this, "INPUT SOURCE",
+  input_menu_ = ui::AddDeviceMenu(input_panel, this, "ADDITIONAL INPUT",
                                   heading_font_, small_font_);
   input_refresh_ = new VSTGUI::CTextButton(
       VSTGUI::CRect(246, 4, 302, 19), this, -1, "REFRESH");
@@ -93,7 +93,7 @@ void Editor::BuildFrame(void* const parent) {
   input_refresh_->setFrameWidth(1.0);
   input_refresh_->setTextMargin(1.0);
   input_panel->addView(input_refresh_);
-  output_menu_ = ui::AddDeviceMenu(output_panel, this, "OUTPUT DESTINATION",
+  output_menu_ = ui::AddDeviceMenu(output_panel, this, "ADDITIONAL OUTPUT",
                                    heading_font_, small_font_);
   input_meter_ = ui::AddLevelMeter(input_panel, 52);
   output_meter_ = ui::AddLevelMeter(output_panel, 52);
@@ -190,12 +190,12 @@ void PLUGIN_API Editor::close() {
 void Editor::UpdateHostRouteLabels(const bool input_connected,
                                    const bool output_connected) {
   const auto update = [](VSTGUI::COptionMenu* const menu,
-                         const bool connected, const char* const host_label) {
+                         const bool /*connected*/, const char* const /*host_label*/) {
     if (menu == nullptr) {
       return;
     }
     if (auto* const host_entry = menu->getEntry(0); host_entry != nullptr) {
-      host_entry->setTitle(connected ? host_label : "OFF");
+      host_entry->setTitle("OFF");
     }
     menu->invalid();
   };

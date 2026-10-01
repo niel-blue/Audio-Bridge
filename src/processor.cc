@@ -1,6 +1,7 @@
 #include "processor.h"
 
 #include "io_state.h"
+#include "additional_routes.h"
 #include "parameters.h"
 #include "vst_messages.h"
 
@@ -198,68 +199,41 @@ auto PLUGIN_API Processor::process(ProcessData& data) -> tresult {
                             direct_input_right_.data(), samples);
   }
 
-  auto block_input_peak = 0.0F;
+  const auto routed = audio::RouteAdditionalBlock(
+      host_left, host_right,
+      use_external_input ? direct_input_left_.data() : nullptr,
+      use_external_input ? direct_input_right_.data() : nullptr,
+      input_gain, output_gain, out_left, out_right,
+      use_external_output ? output_left_.data() : nullptr,
+      use_external_output ? output_right_.data() : nullptr, samples);
+  const auto block_input_peak = routed.peak;
   auto block_output_peak = 0.0F;
-  for (std::size_t index = 0; index < samples; ++index) {
-    const auto source_left = use_external_input
-                                 ? direct_input_left_[index]
-                                 : (host_left != nullptr ? host_left[index]
-                                                          : 0.0F);
-    const auto source_right = use_external_input
-                                   ? direct_input_right_[index]
-                                   : (host_right != nullptr ? host_right[index]
-                                                            : source_left);
-    const auto processed_left = source_left * input_gain;
-    const auto processed_right = source_right * input_gain;
-    const auto left = processed_left * output_gain;
-    const auto right = processed_right * output_gain;
-    block_input_peak = std::max(block_input_peak,
-                                std::max(std::abs(processed_left),
-                                         std::abs(processed_right)));
-    output_left_[index] = left;
-    output_right_[index] = right;
+  if (!use_external_output) {
+    std::copy_n(out_left, samples, output_left_.data());
+    if (out_right) std::copy_n(out_right, samples, output_right_.data());
+    else std::copy_n(out_left, samples, output_right_.data());
   }
-
   output_delay_.Process(output_left_.data(), output_right_.data(), samples,
                         output_delay_ms_.load(std::memory_order_relaxed));
-  for (std::size_t index = 0; index < samples; ++index) {
-    block_output_peak = std::max(
-        block_output_peak,
+  for (std::size_t index = 0; index < samples; ++index)
+    block_output_peak = std::max(block_output_peak,
         std::max(std::abs(output_left_[index]), std::abs(output_right_[index])));
-  }
-
-  auto silence_flags = Steinberg::uint64{0U};
   if (use_external_output) {
-    std::fill_n(out_left, samples, 0.0F);
-    silence_flags |= 1U;
-    if (out_right != nullptr) {
-      std::fill_n(out_right, samples, 0.0F);
-      silence_flags |= 2U;
-    }
+    data.outputs[0].silenceFlags = routed.silence;
+    audio_io_.PushOutputBlock(output_left_.data(), output_right_.data(), samples);
   } else {
-    auto left_silent = true;
-    auto right_silent = true;
+    std::copy_n(output_left_.data(), samples, out_left);
+    if (out_right) std::copy_n(output_right_.data(), samples, out_right);
+    bool left_silent = true, right_silent = true;
     for (std::size_t index = 0; index < samples; ++index) {
-      out_left[index] = output_left_[index];
-      left_silent = left_silent && output_left_[index] == 0.0F;
-      if (out_right != nullptr) {
-        out_right[index] = output_right_[index];
-        right_silent = right_silent && output_right_[index] == 0.0F;
-      }
+      left_silent &= out_left[index] == 0.0F;
+      if (out_right) right_silent &= out_right[index] == 0.0F;
     }
-    if (left_silent) {
-      silence_flags |= 1U;
-    }
-    if (out_right != nullptr && right_silent) {
-      silence_flags |= 2U;
-    }
+    data.outputs[0].silenceFlags = (left_silent ? 1U : 0U) |
+                                 (out_right && right_silent ? 2U : 0U);
   }
-  data.outputs[0].silenceFlags = silence_flags;
   input_peak_ = std::max(input_peak_, block_input_peak);
   output_peak_ = std::max(output_peak_, block_output_peak);
-  if (use_external_output) {
-    audio_io_.PushOutputBlock(output_left_.data(), output_right_.data(), samples);
-  }
 
   meter_frames_ += data.numSamples;
   const auto interval = std::max<std::int64_t>(

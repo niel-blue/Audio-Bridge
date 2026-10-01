@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.25)
 
-project(AudioBridge VERSION 0.3.1 LANGUAGES CXX)
+project(AudioBridge VERSION 0.4.0 LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -99,3 +99,8 @@ if(WIN32)
 endif()
 
 set_property(TARGET ${target} PROPERTY CXX_EXTENSIONS OFF)
+
+enable_testing()
+add_executable(additional_routes_test tests/additional_routes_test.cc src/output_delay.cc)
+target_include_directories(additional_routes_test PRIVATE src)
+add_test(NAME additional_routes_test COMMAND additional_routes_test)

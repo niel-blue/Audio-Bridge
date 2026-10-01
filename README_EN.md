@@ -2,7 +2,7 @@
 
 # Audio-Bridge
 
-Current release: `0.3.1`
+Current release: `0.4.0`
 
 <img width="319" height="330" alt="Audio-Bridge screenshot" src="https://github.com/user-attachments/assets/0fdaf94d-5f41-4e22-a824-215510e3a812" />
 
@@ -17,9 +17,11 @@ Audio-Bridge is a VST plug-in that lets a DAW or VST host route audio directly t
 - Clock drift compensation between the host and external devices
 - VST3 state storage for gain, delay, device selection, and other settings
 
-When no external device is selected, Audio-Bridge behaves like a standard VST plug-in and passes audio from the host input to the host output. Selecting an external input or output switches that side to the external device route instead of mixing it with the host route.
+Host input always passes to host output. ADDITIONAL INPUT adds external audio after applying input gain. ADDITIONAL OUTPUT sends the combined signal externally while preserving the downstream host signal. Input gain affects DAW input when additional input is OFF, and only external input when selected. Output gain and delay affect DAW output when additional output is OFF, and only external output when selected. The combined signal still reaches DAW output without output gain or delay while external output is selected. OFF disables the additional route. With no host input, only external input is passed.
 
-Choose an application with a Windows render-audio session from the `[Application Input]` entries under INPUT SOURCE to capture only that application's process tree. This is per-application input, not the old system-wide loopback source. Use `REFRESH` to update the application list. An application can appear only after it has started producing audio. The VST state stores only its executable identity; the current process ID is resolved each time the source starts.
+States from 0.3.1 remain readable, but external input now adds instead of replacing, and external output branches instead of muting the host output. Users must manage duplicate audio, excessive levels, feedback loops and timing differences through routing and gain. No automatic normalization or delay alignment is applied.
+
+Choose an application with a Windows render-audio session from the `[Application Input]` entries under ADDITIONAL INPUT to capture only that application's process tree. This is per-application input, not the old system-wide loopback source. Use `REFRESH` to update the application list. An application can appear only after it has started producing audio. The VST state stores only its executable identity; the current process ID is resolved each time the source starts.
 
 Audio-Bridge does not open ASIO drivers directly. When used in a DAW or VST host running with ASIO, it can handle ASIO audio through the host's standard input and output route.
 
