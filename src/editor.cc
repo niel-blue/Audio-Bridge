@@ -19,6 +19,11 @@
 #include "vstgui4/vstgui/lib/cvstguitimer.h"
 
 namespace audio_bridge::vst {
+namespace {
+constexpr double kBaseEditorWidth = 320.0;
+constexpr double kBaseEditorHeight = 360.0;
+}  // namespace
+
 Editor::Editor(void* const controller)
     : VSTGUIEditor(controller),
       font_(new VSTGUI::CFontDesc("Segoe UI", 14.0)),
@@ -27,7 +32,7 @@ Editor::Editor(void* const controller)
                                           VSTGUI::kBoldFace)),
       strong_font_(new VSTGUI::CFontDesc("Segoe UI", 17.0,
                                          VSTGUI::kBoldFace)) {
-  setRect(Steinberg::ViewRect(0, 0, 320, 330));
+  setRect(Steinberg::ViewRect(0, 0, 320, 360));
 }
 
 Editor::~Editor() {
@@ -47,7 +52,7 @@ auto PLUGIN_API Editor::open(void* const parent,
 }
 
 void Editor::BuildFrame(void* const parent) {
-  const auto window = VSTGUI::CRect(0, 0, 320, 330);
+  const auto window = VSTGUI::CRect(0, 0, kBaseEditorWidth, kBaseEditorHeight);
   constexpr auto kContentOffset = 3.0;
   frame = new VSTGUI::CFrame(window, this);
   if (frame == nullptr) {
