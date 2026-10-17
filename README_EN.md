@@ -2,7 +2,7 @@
 
 # Audio-Bridge
 
-Current release: `0.4.1`
+Current release: `0.4.2`
 
 <img width="319" height="330" alt="Audio-Bridge screenshot" src="https://github.com/user-attachments/assets/0fdaf94d-5f41-4e22-a824-215510e3a812" />
 

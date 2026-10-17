@@ -21,7 +21,7 @@
 namespace audio_bridge::vst {
 namespace {
 constexpr double kBaseEditorWidth = 320.0;
-constexpr double kBaseEditorHeight = 360.0;
+constexpr double kBaseEditorHeight = 320.0;
 }  // namespace
 
 Editor::Editor(void* const controller)
@@ -32,7 +32,7 @@ Editor::Editor(void* const controller)
                                           VSTGUI::kBoldFace)),
       strong_font_(new VSTGUI::CFontDesc("Segoe UI", 17.0,
                                          VSTGUI::kBoldFace)) {
-  setRect(Steinberg::ViewRect(0, 0, 320, 360));
+  setRect(Steinberg::ViewRect(0, 0, 320, 320));
 }
 
 Editor::~Editor() {
@@ -138,7 +138,7 @@ void Editor::BuildFrame(void* const parent) {
   output_delay_edit_ = output_delay.edit;
 
   exclusive_checkbox_ = new VSTGUI::CCheckBox(
-      VSTGUI::CRect(20, 296 + kContentOffset, 154, 322 + kContentOffset),
+      VSTGUI::CRect(20, 290 + kContentOffset, 154, 316 + kContentOffset),
       this, static_cast<int>(kExclusive), "WASAPI EXCLUSIVE");
   exclusive_checkbox_->setFont(small_font_);
   exclusive_checkbox_->setFontColor(ui::palette::kText);
@@ -148,7 +148,7 @@ void Editor::BuildFrame(void* const parent) {
   root->addView(exclusive_checkbox_);
 
   status_label_ = ui::MakeLabel(
-      VSTGUI::CRect(153, 296 + kContentOffset, 302, 322 + kContentOffset),
+      VSTGUI::CRect(153, 290 + kContentOffset, 302, 316 + kContentOffset),
       "●  OFF  /  Select a device to start", small_font_,
       ui::palette::kMuted);
   status_label_->setHoriAlign(VSTGUI::CHoriTxtAlign::kRightText);
