@@ -151,12 +151,17 @@ auto AddDeviceMenu(VSTGUI::CViewContainer* const panel,
                    VSTGUI::IControlListener* const listener,
                    const char* const title, VSTGUI::CFontRef heading_font,
                    VSTGUI::CFontRef menu_font) -> VSTGUI::COptionMenu* {
-  panel->addView(MakeLabel(VSTGUI::CRect(20, 5, 302, 19), title,
-                           heading_font, palette::kAccent));
-  auto* const background = new SolidBitmap(282, 26, palette::kPanelRaised,
+  auto* const title_label = MakeLabel(VSTGUI::CRect(0, 5, 320, 19), title,
+                                      heading_font, palette::kAccent);
+  title_label->setAutosizeFlags(VSTGUI::kAutosizeLeft | VSTGUI::kAutosizeRight |
+                                VSTGUI::kAutosizeTop);
+  panel->addView(title_label);
+  auto* const background = new SolidBitmap(320, 26, palette::kPanelRaised,
                                             palette::kBorder);
-  auto* const menu = new DeviceMenu(VSTGUI::CRect(20, 22, 302, 48), listener,
+  auto* const menu = new DeviceMenu(VSTGUI::CRect(0, 22, 320, 48), listener,
                                     -1, background);
+  menu->setAutosizeFlags(VSTGUI::kAutosizeLeft | VSTGUI::kAutosizeRight |
+                         VSTGUI::kAutosizeTop);
   menu->setFont(menu_font);
   menu->setFontColor(palette::kText);
   menu->setHoriAlign(VSTGUI::CHoriTxtAlign::kLeftText);
@@ -170,7 +175,9 @@ auto AddDeviceMenu(VSTGUI::CViewContainer* const panel,
 auto AddLevelMeter(VSTGUI::CViewContainer* const panel,
                    const double top) -> LevelMeter* {
   auto* const meter =
-      new LevelMeter(VSTGUI::CRect(20, top, 300, top + 6));
+      new LevelMeter(VSTGUI::CRect(0, top, 320, top + 6));
+  meter->setAutosizeFlags(VSTGUI::kAutosizeLeft | VSTGUI::kAutosizeRight |
+                          VSTGUI::kAutosizeTop);
   panel->addView(meter);
   return meter;
 }
@@ -183,26 +190,29 @@ auto AddParameterControl(
     const char* const default_text) -> ParameterControl {
   auto result = ParameterControl{};
   auto* const edit_background =
-      new SolidBitmap(42, 20, palette::kPanelRaised, palette::kBorder);
+      new SolidBitmap(50, 20, palette::kPanelRaised, palette::kBorder);
   result.edit = new VSTGUI::CTextEdit(
-      VSTGUI::CRect(20, top, 62, top + 20), listener, -1, default_text,
+      VSTGUI::CRect(0, top, 50, top + 20), listener, -1, default_text,
       edit_background);
   result.edit->setFont(font);
   result.edit->setFontColor(palette::kText);
   result.edit->setHoriAlign(VSTGUI::CHoriTxtAlign::kRightText);
   result.edit->setTextInset(VSTGUI::CPoint(4, 0));
   result.edit->setImmediateTextChange(false);
+  result.edit->setAutosizeFlags(VSTGUI::kAutosizeLeft | VSTGUI::kAutosizeTop);
   panel->addView(result.edit);
   edit_background->forget();
 
   auto* const background = new SliderTrackBitmap(
-      156, 18, palette::kControlBackground, palette::kBorder);
+      210, 18, palette::kControlBackground, palette::kBorder);
   auto* const handle =
       new SolidBitmap(8, 18, palette::kAccent, palette::kAccent);
   result.slider = new VSTGUI::CHorizontalSlider(
-      VSTGUI::CRect(80, top + 1, 236, top + 19), listener, tag, 80, 228,
+      VSTGUI::CRect(60, top + 1, 270, top + 19), listener, tag, 60, 262,
       handle, background, VSTGUI::CPoint(0, 0),
       VSTGUI::CSliderBase::kLeft);
+  result.slider->setAutosizeFlags(VSTGUI::kAutosizeLeft | VSTGUI::kAutosizeRight |
+                             VSTGUI::kAutosizeTop);
   result.slider->setMin(minimum);
   result.slider->setMax(maximum);
   result.slider->setDefaultValue(default_value);
@@ -213,7 +223,7 @@ auto AddParameterControl(
   handle->forget();
 
   result.reset = new VSTGUI::CTextButton(
-      VSTGUI::CRect(251, top, 301, top + 20), listener, -1, "RESET");
+      VSTGUI::CRect(270, top, 320, top + 20), listener, -1, "RESET");
   result.reset->setFont(font);
   result.reset->setTextColor(palette::kText);
   result.reset->setTextColorHighlighted(palette::kText);
@@ -231,6 +241,7 @@ auto AddParameterControl(
   result.reset->setFrameWidth(1.0);
   result.reset->setTextMargin(1.0);
   result.reset->setTextAlignment(VSTGUI::kCenterText);
+  result.reset->setAutosizeFlags(VSTGUI::kAutosizeRight | VSTGUI::kAutosizeTop);
   panel->addView(result.reset);
   return result;
 }

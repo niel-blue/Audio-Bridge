@@ -32,6 +32,11 @@ class Editor final : public Steinberg::Vst::VSTGUIEditor,
 
   auto PLUGIN_API open(void* parent, const PlatformType& platformType)
       -> bool SMTG_OVERRIDE;
+  Steinberg::tresult PLUGIN_API canResize() SMTG_OVERRIDE;
+  Steinberg::tresult PLUGIN_API checkSizeConstraint(
+      Steinberg::ViewRect* size) SMTG_OVERRIDE;
+  Steinberg::tresult PLUGIN_API onSize(
+      Steinberg::ViewRect* newSize) SMTG_OVERRIDE;
   void PLUGIN_API close() SMTG_OVERRIDE;
   void valueChanged(CControl* control) SMTG_OVERRIDE;
 
