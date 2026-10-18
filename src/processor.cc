@@ -70,11 +70,15 @@ auto PLUGIN_API Processor::setupProcessing(ProcessSetup& setup) -> tresult {
   meter_frames_ = 0;
   input_peak_ = 0.0F;
   output_peak_ = 0.0F;
-  output_delay_.Prepare(sample_rate_, kMaximumOutputDelayMs);
+  input_delay_.Prepare(sample_rate_, kMaximumDelayMs);
+  input_delay_.Reset();
+  output_delay_.Prepare(sample_rate_, kMaximumDelayMs);
   output_delay_.Reset();
   const auto size = static_cast<std::size_t>(setup.maxSamplesPerBlock);
   direct_input_left_.assign(size, 0.0F);
   direct_input_right_.assign(size, 0.0F);
+  input_left_.assign(size, 0.0F);
+  input_right_.assign(size, 0.0F);
   output_left_.assign(size, 0.0F);
   output_right_.assign(size, 0.0F);
   StartConfiguredIo();
@@ -86,7 +90,8 @@ auto PLUGIN_API Processor::getLatencySamples() -> uint32 {
     return 0U;
   }
   return static_cast<uint32>(std::llround(
-      output_delay_ms_.load(std::memory_order_relaxed) * sample_rate_ /
+      (input_delay_ms_.load(std::memory_order_relaxed) +
+       output_delay_ms_.load(std::memory_order_relaxed)) * sample_rate_ /
       1000.0));
 }
 
@@ -98,6 +103,7 @@ auto PLUGIN_API Processor::setActive(const TBool state) -> tresult {
     meter_frames_ = 0;
     input_peak_ = 0.0F;
     output_peak_ = 0.0F;
+    input_delay_.Reset();
     output_delay_.Reset();
   }
   return AudioEffect::setActive(state);
@@ -118,26 +124,16 @@ void Processor::StartConfiguredIo() {
 }
 
 auto PLUGIN_API Processor::process(ProcessData& data) -> tresult {
-  if (data.numSamples <= 0 || data.numOutputs <= 0 || data.outputs == nullptr ||
-      data.outputs[0].numChannels <= 0 ||
-      data.symbolicSampleSize == Steinberg::Vst::kSample64) {
-    return kResultOk;
-  }
-  const auto samples = static_cast<std::size_t>(data.numSamples);
-  if (samples > direct_input_left_.size()) {
-    return kResultFalse;
-  }
-  if (reset_output_delay_.exchange(false, std::memory_order_acq_rel)) {
-    output_delay_.Reset();
-  }
-
   if (data.inputParameterChanges != nullptr) {
     const auto count = data.inputParameterChanges->getParameterCount();
+    for (int pass = 0; pass < 2; ++pass) {
     for (auto index = 0; index < count; ++index) {
       auto* const queue = data.inputParameterChanges->getParameterData(index);
       if (queue == nullptr || queue->getPointCount() <= 0) {
         continue;
       }
+      const bool is_link = queue->getParameterId()==kInputLink || queue->getParameterId()==kOutputLink;
+      if (is_link != (pass==0)) continue;
       int32 sample_offset = 0;
       ParamValue value = 0.0;
       if (queue->getPoint(queue->getPointCount() - 1, sample_offset, value) !=
@@ -153,14 +149,53 @@ auto PLUGIN_API Processor::process(ProcessData& data) -> tresult {
       } else if (queue->getParameterId() == kOutputDelay) {
         output_delay_ms_.store(DelayMsFromNormalized(value),
                                std::memory_order_relaxed);
+      } else if (queue->getParameterId() == kInputDelay) {
+        input_delay_ms_.store(DelayMsFromNormalized(value),
+                              std::memory_order_relaxed);
+      } else if (queue->getParameterId() == kInputGainRight) {
+        input_gain_right_db_.store(GainDbFromNormalized(value), std::memory_order_relaxed);
+      } else if (queue->getParameterId() == kOutputGainRight) {
+        output_gain_right_db_.store(GainDbFromNormalized(value), std::memory_order_relaxed);
+      } else if (queue->getParameterId() == kInputLink) {
+        input_link_.store(value > 0.5, std::memory_order_relaxed);
+      } else if (queue->getParameterId() == kOutputLink) {
+        output_link_.store(value > 0.5, std::memory_order_relaxed);
+      } else if (queue->getParameterId() == kInputMuteLeft) {
+        input_mute_left_.store(value > 0.5, std::memory_order_relaxed);
+      } else if (queue->getParameterId() == kInputMuteRight) {
+        input_mute_right_.store(value > 0.5, std::memory_order_relaxed);
+      } else if (queue->getParameterId() == kOutputMuteLeft) {
+        output_mute_left_.store(value > 0.5, std::memory_order_relaxed);
+      } else if (queue->getParameterId() == kOutputMuteRight) {
+        output_mute_right_.store(value > 0.5, std::memory_order_relaxed);
       } else if (queue->getParameterId() == kExclusive) {
         exclusive_.store(value > 0.5, std::memory_order_relaxed);
       }
     }
   }
 
-  const auto input_gain = AmpFromDb(input_gain_db_.load());
-  const auto output_gain = AmpFromDb(output_gain_db_.load());
+  }
+
+  if (data.numSamples <= 0 || data.numOutputs <= 0 || data.outputs == nullptr ||
+      data.outputs[0].numChannels <= 0 ||
+      data.symbolicSampleSize == Steinberg::Vst::kSample64) {
+    return kResultOk;
+  }
+  const auto samples = static_cast<std::size_t>(data.numSamples);
+  if (samples > direct_input_left_.size()) {
+    return kResultFalse;
+  }
+  if (reset_input_delay_.exchange(false, std::memory_order_acq_rel)) {
+    input_delay_.Reset();
+  }
+  if (reset_output_delay_.exchange(false, std::memory_order_acq_rel)) {
+    output_delay_.Reset();
+  }
+
+  const auto input_gain = input_mute_left_.load() ? 0.0F : AmpFromDb(input_gain_db_.load());
+  const auto input_gain_right = input_mute_right_.load() ? 0.0F : AmpFromDb(input_gain_right_db_.load());
+  const auto output_gain = output_mute_left_.load() ? 0.0F : AmpFromDb(output_gain_db_.load());
+  const auto output_gain_right = output_mute_right_.load() ? 0.0F : AmpFromDb(output_gain_right_db_.load());
   const auto* const host_left =
       data.inputs != nullptr && data.numInputs > 0 &&
               data.inputs[0].numChannels > 0 &&
@@ -199,38 +234,59 @@ auto PLUGIN_API Processor::process(ProcessData& data) -> tresult {
                             direct_input_right_.data(), samples);
   }
 
-  const auto routed = audio::RouteAdditionalBlock(
-      host_left, host_right,
-      use_external_input ? direct_input_left_.data() : nullptr,
-      use_external_input ? direct_input_right_.data() : nullptr,
-      input_gain, output_gain, out_left, out_right,
+  const auto* const selected_left =
+      use_external_input ? direct_input_left_.data() : host_left;
+  const auto* const selected_right =
+      use_external_input ? direct_input_right_.data() : host_right;
+  if (selected_left != nullptr) {
+    std::copy_n(selected_left, samples, input_left_.data());
+  } else {
+    std::fill_n(input_left_.data(), samples, 0.0F);
+  }
+  if (selected_right != nullptr) {
+    std::copy_n(selected_right, samples, input_right_.data());
+  } else {
+    std::copy_n(input_left_.data(), samples, input_right_.data());
+  }
+  input_delay_.Process(input_left_.data(), input_right_.data(), samples,
+                       input_delay_ms_.load(std::memory_order_relaxed));
+
+  const auto routed = audio::RouteSelectedInputBlock(
+      input_left_.data(), input_right_.data(), nullptr, nullptr,
+      input_gain, input_gain_right, output_gain, output_gain_right,
+      input_left_.data(), input_right_.data(),
       use_external_output ? output_left_.data() : nullptr,
       use_external_output ? output_right_.data() : nullptr, samples);
   const auto block_input_peak = routed.peak;
   auto block_output_peak = 0.0F;
   if (!use_external_output) {
-    std::copy_n(out_left, samples, output_left_.data());
-    if (out_right) std::copy_n(out_right, samples, output_right_.data());
-    else std::copy_n(out_left, samples, output_right_.data());
+    std::copy_n(input_left_.data(), samples, output_left_.data());
+    std::copy_n(input_right_.data(), samples, output_right_.data());
   }
   output_delay_.Process(output_left_.data(), output_right_.data(), samples,
                         output_delay_ms_.load(std::memory_order_relaxed));
   for (std::size_t index = 0; index < samples; ++index)
     block_output_peak = std::max(block_output_peak,
         std::max(std::abs(output_left_[index]), std::abs(output_right_[index])));
+  // Preserve both processed channels independently of the host bus width.
+  // Additional output keeps its stereo signal; only the host's final mono
+  // return is downmixed, after L/R gain and mute have both been applied.
+  const auto* host_processed_left = use_external_output ? input_left_.data() : output_left_.data();
+  const auto* host_processed_right = use_external_output ? input_right_.data() : output_right_.data();
+  bool left_silent = true, right_silent = true;
+  for (std::size_t index = 0; index < samples; ++index) {
+    const float left = host_processed_left[index];
+    const float right = host_processed_right[index];
+    out_left[index] = out_right ? left : (left + right) * 0.5F;
+    if (out_right) out_right[index] = right;
+    left_silent &= out_left[index] == 0.0F;
+    if (out_right) right_silent &= out_right[index] == 0.0F;
+  }
+  const bool bus_silent = left_silent && (!out_right || right_silent);
+  data.outputs[0].silenceFlags =
+      bus_silent ? (out_right ? 3U : 1U) : 0U;
   if (use_external_output) {
-    data.outputs[0].silenceFlags = routed.silence;
     audio_io_.PushOutputBlock(output_left_.data(), output_right_.data(), samples);
-  } else {
-    std::copy_n(output_left_.data(), samples, out_left);
-    if (out_right) std::copy_n(output_right_.data(), samples, out_right);
-    bool left_silent = true, right_silent = true;
-    for (std::size_t index = 0; index < samples; ++index) {
-      left_silent &= out_left[index] == 0.0F;
-      if (out_right) right_silent &= out_right[index] == 0.0F;
-    }
-    data.outputs[0].silenceFlags = (left_silent ? 1U : 0U) |
-                                 (out_right && right_silent ? 2U : 0U);
   }
   input_peak_ = std::max(input_peak_, block_input_peak);
   output_peak_ = std::max(output_peak_, block_output_peak);
@@ -310,6 +366,15 @@ auto Processor::CurrentState() -> state::Data {
   data.input_gain_db = input_gain_db_.load(std::memory_order_relaxed);
   data.output_gain_db = output_gain_db_.load(std::memory_order_relaxed);
   data.output_delay_ms = output_delay_ms_.load(std::memory_order_relaxed);
+  data.input_delay_ms = input_delay_ms_.load(std::memory_order_relaxed);
+  data.input_gain_right_db = input_gain_right_db_.load(std::memory_order_relaxed);
+  data.output_gain_right_db = output_gain_right_db_.load(std::memory_order_relaxed);
+  data.input_link = input_link_.load(std::memory_order_relaxed);
+  data.output_link = output_link_.load(std::memory_order_relaxed);
+  data.input_mute_left = input_mute_left_.load(std::memory_order_relaxed);
+  data.input_mute_right = input_mute_right_.load(std::memory_order_relaxed);
+  data.output_mute_left = output_mute_left_.load(std::memory_order_relaxed);
+  data.output_mute_right = output_mute_right_.load(std::memory_order_relaxed);
   data.exclusive = exclusive_.load(std::memory_order_relaxed);
   const auto lock = std::lock_guard(state_mutex_);
   if (config_.has_value()) {
@@ -325,6 +390,16 @@ void Processor::ApplyParameterState(const state::Data& data) {
   output_gain_db_.store(sanitized.output_gain_db, std::memory_order_relaxed);
   output_delay_ms_.store(sanitized.output_delay_ms,
                          std::memory_order_relaxed);
+  input_delay_ms_.store(sanitized.input_delay_ms,
+                        std::memory_order_relaxed);
+  input_gain_right_db_.store(sanitized.input_gain_right_db, std::memory_order_relaxed);
+  output_gain_right_db_.store(sanitized.output_gain_right_db, std::memory_order_relaxed);
+  input_link_.store(sanitized.input_link, std::memory_order_relaxed);
+  output_link_.store(sanitized.output_link, std::memory_order_relaxed);
+  input_mute_left_.store(sanitized.input_mute_left, std::memory_order_relaxed);
+  input_mute_right_.store(sanitized.input_mute_right, std::memory_order_relaxed);
+  output_mute_left_.store(sanitized.output_mute_left, std::memory_order_relaxed);
+  output_mute_right_.store(sanitized.output_mute_right, std::memory_order_relaxed);
   exclusive_.store(sanitized.exclusive, std::memory_order_relaxed);
 }
 
@@ -349,6 +424,7 @@ void Processor::ConfigureRouting(const state::Data& data,
   } else if (sample_rate_ > 0.0) {
     audio_io_.Start(config);
   }
+  reset_input_delay_.store(true, std::memory_order_release);
   reset_output_delay_.store(true, std::memory_order_release);
 }
 
@@ -381,6 +457,7 @@ auto PLUGIN_API Processor::notify(IMessage* const message) -> tresult {
       config_.reset();
     }
     audio_io_.Stop();
+    reset_input_delay_.store(true, std::memory_order_release);
     reset_output_delay_.store(true, std::memory_order_release);
     return kResultTrue;
   }

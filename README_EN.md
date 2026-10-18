@@ -2,7 +2,7 @@
 
 # Audio-Bridge
 
-Current release: `0.4.3`
+Current release: `0.4.4`
 
 <img width="319" height="330" alt="Audio-Bridge screenshot" src="https://github.com/user-attachments/assets/0fdaf94d-5f41-4e22-a824-215510e3a812" />
 
@@ -10,18 +10,18 @@ Audio-Bridge is a VST plug-in that lets a DAW or VST host route audio directly t
 
 ## Features
 
-- Input and output gain: -30 to +30 dB
-- Output delay: 0 to 2000 ms
+- Input and output gain: -20 to +20 dB (independent L/R, linkable, individual mutes)
+- Input and output delay: 0 to 10,000 ms (knob range to 1,000 ms; manual entry to 10,000 ms)
 - Per-application audio input through Application Input
 - MME, DirectSound, and WASAPI shared/exclusive modes
 - Clock drift compensation between the host and external devices
 - VST3 state storage for gain, delay, device selection, and other settings
 
-Host input always passes to host output. ADDITIONAL INPUT adds external audio after applying input gain. ADDITIONAL OUTPUT sends the combined signal externally while preserving the downstream host signal. Input gain affects DAW input when additional input is OFF, and only external input when selected. Output gain and delay affect DAW output when additional output is OFF, and only external output when selected. The combined signal still reaches DAW output without output gain or delay while external output is selected. OFF disables the additional route. With no host input, only external input is passed.
+INPUT selects HOST INPUT or an external input. HOST INPUT is the default and applies input gain and input delay to the host signal. When an external input is selected, it replaces the host input and input gain and input delay apply only to that selected source. ADDITIONAL OUTPUT sends the selected input to the host output and an external destination. Output gain and delay affect host output when HOST OUTPUT is selected, and only the external output when an external destination is selected. While external output is selected, DAW output carries the input after input gain and input delay; output gain and output delay affect only the external output.
 
-States from 0.3.1 remain readable, but external input now adds instead of replacing, and external output branches instead of muting the host output. Users must manage duplicate audio, excessive levels, feedback loops and timing differences through routing and gain. No automatic normalization or delay alignment is applied.
+States from 0.3.1 remain readable. External output branches instead of muting the host output. Users must manage duplicate audio, excessive levels, feedback loops and timing differences through routing and gain. No automatic normalization or delay alignment is applied.
 
-Choose an application with a Windows render-audio session from the `[Application Input]` entries under ADDITIONAL INPUT to capture only that application's process tree. This is per-application input, not the old system-wide loopback source. Use `REFRESH` to update the application list. An application can appear only after it has started producing audio. The VST state stores only its executable identity; the current process ID is resolved each time the source starts.
+Choose an application with a Windows render-audio session from the `[Application Input]` entries under INPUT to capture only that application's process tree. This is per-application input, not the old system-wide loopback source. Use `REFRESH` to update the application list. An application can appear only after it has started producing audio. The VST state stores only its executable identity; the current process ID is resolved each time the source starts.
 
 Audio-Bridge does not open ASIO drivers directly. When used in a DAW or VST host running with ASIO, it can handle ASIO audio through the host's standard input and output route.
 

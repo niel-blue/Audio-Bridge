@@ -34,12 +34,12 @@ class Editor final : public Steinberg::Vst::VSTGUIEditor,
       -> bool SMTG_OVERRIDE;
   void PLUGIN_API close() SMTG_OVERRIDE;
   void valueChanged(CControl* control) SMTG_OVERRIDE;
+  int32_t getKnobMode() const override;
 
  private:
   void BuildFrame(void* parent);
   void RefreshDevices();
   void RefreshParameters();
-  void UpdateHostRouteLabels(bool input_connected, bool output_connected);
   void SendDeviceConfig();
   void SendParameterEdit(ParamID id, double normalized);
   void PollState();
@@ -55,15 +55,16 @@ class Editor final : public Steinberg::Vst::VSTGUIEditor,
   VSTGUI::COptionMenu* output_menu_ = nullptr;
   VSTGUI::CTextButton* input_refresh_ = nullptr;
   VSTGUI::CCheckBox* exclusive_checkbox_ = nullptr;
-  VSTGUI::CHorizontalSlider* input_gain_ = nullptr;
-  VSTGUI::CHorizontalSlider* output_gain_ = nullptr;
-  VSTGUI::CHorizontalSlider* output_delay_ = nullptr;
-  VSTGUI::CTextButton* input_reset_ = nullptr;
-  VSTGUI::CTextButton* output_reset_ = nullptr;
-  VSTGUI::CTextButton* output_delay_reset_ = nullptr;
-  VSTGUI::CTextEdit* input_gain_edit_ = nullptr;
-  VSTGUI::CTextEdit* output_gain_edit_ = nullptr;
-  VSTGUI::CTextEdit* output_delay_edit_ = nullptr;
+  struct SectionControls {
+    ui::RotaryKnob* gain[2]{};
+    VSTGUI::CTextEdit* gain_edit[2]{};
+    VSTGUI::CTextButton* mute[2]{};
+    VSTGUI::CTextButton* link = nullptr;
+    VSTGUI::CTextButton* reset = nullptr;
+    ui::RotaryKnob* delay = nullptr;
+    VSTGUI::CTextEdit* delay_edit = nullptr;
+    VSTGUI::CTextButton* delay_reset = nullptr;
+  } sections_[2];
   VSTGUI::CTextLabel* status_label_ = nullptr;
   ui::LevelMeter* input_meter_ = nullptr;
   ui::LevelMeter* output_meter_ = nullptr;

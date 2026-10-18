@@ -11,6 +11,15 @@ struct Data {
   double input_gain_db = 0.0;
   double output_gain_db = 0.0;
   double output_delay_ms = 0.0;
+  double input_delay_ms = 0.0;
+  double input_gain_right_db = 0.0;
+  double output_gain_right_db = 0.0;
+  bool input_link = true;
+  bool output_link = true;
+  bool input_mute_left = false;
+  bool input_mute_right = false;
+  bool output_mute_left = false;
+  bool output_mute_right = false;
   bool exclusive = false;
   std::string input_id;
   std::string output_id;

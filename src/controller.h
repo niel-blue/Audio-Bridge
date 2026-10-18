@@ -35,6 +35,8 @@ class Controller final : public Steinberg::Vst::EditController {
       -> Steinberg::IPlugView* SMTG_OVERRIDE;
   auto PLUGIN_API notify(IMessage* message) -> tresult SMTG_OVERRIDE;
 
+  auto PLUGIN_API setParamNormalized(ParamID id, ParamValue value) -> tresult SMTG_OVERRIDE;
+
   void SetDeviceSelection(std::string input_id, std::string output_id,
                           bool exclusive);
   void SyncParameterStateToProcessor();

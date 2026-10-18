@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.25)
 
-project(AudioBridge VERSION 0.4.3 LANGUAGES CXX)
+project(AudioBridge VERSION 0.4.4 LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -104,3 +104,24 @@ enable_testing()
 add_executable(additional_routes_test tests/additional_routes_test.cc src/output_delay.cc)
 target_include_directories(additional_routes_test PRIVATE src)
 add_test(NAME additional_routes_test COMMAND additional_routes_test)
+
+# Exercise the real processor/controller and draw the actual editor offscreen.
+get_target_property(_audio_bridge_test_sources audio_bridge SOURCES)
+list(FILTER _audio_bridge_test_sources EXCLUDE REGEX "(factory|dllmain)\\.(cc|cpp)$")
+add_executable(lr_controls_test tests/lr_controls_test.cc ${_audio_bridge_test_sources})
+target_include_directories(lr_controls_test PRIVATE src "${AUDIO_BRIDGE_VST3_SDK}" "${CMAKE_CURRENT_BINARY_DIR}/src")
+target_link_libraries(lr_controls_test PRIVATE sdk sdk_hosting vstgui_support ole32 uuid winmm dsound dxguid mmdevapi)
+add_test(NAME lr_controls_test COMMAND lr_controls_test "${CMAKE_CURRENT_SOURCE_DIR}/dist/ui-preview-lr.png")
+
+
+target_sources(lr_controls_test PRIVATE "${AUDIO_BRIDGE_VST3_SDK}/public.sdk/source/common/memorystream.cpp")
+
+add_executable(installed_lr_probe tests/installed_lr_probe.cc src/io_state.cc "${AUDIO_BRIDGE_VST3_SDK}/public.sdk/source/common/memorystream.cpp")
+target_include_directories(installed_lr_probe PRIVATE src "${AUDIO_BRIDGE_VST3_SDK}")
+target_link_libraries(installed_lr_probe PRIVATE sdk sdk_hosting ole32)
+add_test(NAME installed_lr_probe COMMAND installed_lr_probe "E:/ProgramFiles/VST/Audio-Bridge.vst3")
+
+add_executable(route_matrix_test tests/route_matrix_test.cc src/processor.cc src/io_state.cc src/vst_messages.cc src/output_delay.cc "${AUDIO_BRIDGE_VST3_SDK}/public.sdk/source/common/memorystream.cpp")
+target_include_directories(route_matrix_test PRIVATE src "${AUDIO_BRIDGE_VST3_SDK}" "${CMAKE_CURRENT_BINARY_DIR}/src")
+target_link_libraries(route_matrix_test PRIVATE sdk sdk_hosting)
+add_test(NAME route_matrix_test COMMAND route_matrix_test)

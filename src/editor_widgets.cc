@@ -1,4 +1,5 @@
 #include "editor_widgets.h"
+#include "parameters.h"
 
 #include <algorithm>
 #include <cctype>
@@ -9,6 +10,7 @@
 #include "vstgui4/vstgui/lib/cbitmap.h"
 #include "vstgui4/vstgui/lib/cdrawcontext.h"
 #include "vstgui4/vstgui/lib/cgradient.h"
+#include "vstgui4/vstgui/lib/cgraphicspath.h"
 
 namespace audio_bridge::vst::ui {
 namespace {
@@ -115,6 +117,97 @@ class DeviceMenu final : public VSTGUI::COptionMenu {
 };
 
 }  // namespace
+
+LinkSwitch::LinkSwitch(const VSTGUI::CRect& rect,VSTGUI::IControlListener* listener,int tag)
+    : CTextButton(rect,listener,tag,"LINK ON",VSTGUI::CTextButton::kOnOffStyle) {}
+
+void LinkSwitch::draw(VSTGUI::CDrawContext* context) {
+  const auto r=getViewSize(); const double cx=(r.left+r.right)/2;
+  const bool on=getValue()>0.5F;
+  context->setDrawMode(VSTGUI::kAntiAliasing);
+  context->setFont(VSTGUI::kNormalFontVerySmall);
+  context->setFontColor(on ? palette::kAccent : palette::kMuted);
+  context->drawString(on ? "LINK ON" : "LINK OFF",VSTGUI::CRect(r.left,r.top,r.right,r.top+11),VSTGUI::kCenterText);
+  auto capsule=VSTGUI::owned(context->createGraphicsPath());
+  if(capsule) {
+    capsule->addRoundRect(VSTGUI::CRect(cx-10,r.top+13,cx+10,r.top+23),5);
+    context->setFillColor(on ? palette::kPanelRaised : palette::kBackground);
+    context->setFrameColor(on ? palette::kAccent : palette::kMuted); context->setLineWidth(1);
+    context->drawGraphicsPath(capsule,VSTGUI::CDrawContext::kPathFilled);
+    context->drawGraphicsPath(capsule,VSTGUI::CDrawContext::kPathStroked);
+  }
+  context->setFillColor(on ? palette::kText : palette::kMuted);
+  const double dot=cx+(on ? 5 : -5);
+  context->drawEllipse(VSTGUI::CRect(dot-3,r.top+15,dot+3,r.top+21),VSTGUI::kDrawFilled);
+  context->setFrameColor(on ? palette::kAccent : palette::kMuted);context->setLineWidth(1.3);
+  context->drawEllipse(VSTGUI::CRect(cx-6,r.top+28,cx+1,r.top+34),VSTGUI::kDrawStroked);
+  context->drawEllipse(VSTGUI::CRect(cx-1,r.top+25,cx+6,r.top+31),VSTGUI::kDrawStroked);
+  setDirty(false);
+}
+
+RotaryKnob::RotaryKnob(const VSTGUI::CRect& rect,
+    VSTGUI::IControlListener* listener, int tag, bool delay)
+    : CKnob(rect, listener, tag, nullptr, nullptr) {
+  setMin(delay ? 0.0F : -20.0F);
+  setMax(delay ? static_cast<float>(kMaximumKnobDelayMs) : 20.0F);
+  setDefaultValue(0.0F);
+  setValue(0.0F);
+  setWheelInc(delay ? 10.0F / static_cast<float>(kMaximumKnobDelayMs) : 0.0125F);
+  setKnobRange(delay ? 200.0F : 160.0F);
+}
+
+VSTGUI::CMouseEventResult RotaryKnob::onMouseDown(
+    VSTGUI::CPoint& where, const VSTGUI::CButtonState& buttons) {
+  drag_start_x_ = where.x;
+  // Keep the standard relative drag, fine adjustment and edit notifications.
+  // Alt must not switch this control back to circular tracking.
+  return CKnob::onMouseDown(where, VSTGUI::CButtonState(buttons() & ~VSTGUI::kAlt));
+}
+
+VSTGUI::CMouseEventResult RotaryKnob::onMouseMoved(
+    VSTGUI::CPoint& where, const VSTGUI::CButtonState& buttons) {
+  // VSTGUI's linear mode normally adds horizontal movement to vertical movement.
+  // Project onto the original X position so only upward/downward motion counts.
+  auto vertical = where;
+  vertical.x = drag_start_x_;
+  return CKnob::onMouseMoved(vertical, VSTGUI::CButtonState(buttons() & ~VSTGUI::kAlt));
+}
+
+void RotaryKnob::draw(VSTGUI::CDrawContext* context) {
+  const auto r = getViewSize();
+  const double cx = (r.left + r.right) / 2, cy = (r.top + r.bottom) / 2;
+  const double radius = r.getWidth() / 2 - 3;
+  constexpr double pi = 3.141592653589793;
+  context->setDrawMode(VSTGUI::kAntiAliasing);
+  context->setLineStyle(VSTGUI::CLineStyle(VSTGUI::CLineStyle::kLineCapRound));
+  const auto point = [&](double a, double rad) {
+    return VSTGUI::CPoint(cx + std::cos(a) * rad, cy + std::sin(a) * rad);
+  };
+  const auto arc = [&](double rad, double fraction, VSTGUI::CColor color, double width) {
+    context->setFrameColor(color); context->setLineWidth(width);
+    if (fraction <= 0) return;
+    auto path = VSTGUI::owned(context->createGraphicsPath());
+    if (!path) return;
+    CKnob::addArc(path, VSTGUI::CRect(cx-rad,cy-rad,cx+rad,cy+rad),0.75*pi,1.5*pi*fraction);
+    context->drawGraphicsPath(path,VSTGUI::CDrawContext::kPathStroked);
+  };
+  arc(radius, 1, palette::kSliderTrack, 3.5);
+  arc(radius, getValueNormalized(), palette::kAccent, 2.5);
+  auto body = r; body.inset(8,8);
+  context->setFillColor(palette::kPanelRaised);
+  context->setFrameColor(palette::kButtonBorder); context->setLineWidth(1);
+  auto body_path = VSTGUI::owned(context->createGraphicsPath());
+  if (body_path) {
+    body_path->addEllipse(body);
+    auto gradient=VSTGUI::owned(VSTGUI::CGradient::create(0,1,VSTGUI::CColor(30,55,72),palette::kBackground));
+    context->fillLinearGradient(body_path,*gradient,VSTGUI::CPoint(cx,body.top),VSTGUI::CPoint(cx,body.bottom));
+    context->drawGraphicsPath(body_path,VSTGUI::CDrawContext::kPathStroked);
+  }
+  const double angle = 0.75*pi + getValueNormalized()*1.5*pi;
+  context->setFrameColor(palette::kText); context->setLineWidth(1.5);
+  context->drawLine(point(angle, radius*0.32), point(angle, radius-2));
+  setDirty(false);
+}
 
 LevelMeter::LevelMeter(const VSTGUI::CRect& rect) : CView(rect) {
   setMouseEnabled(false);

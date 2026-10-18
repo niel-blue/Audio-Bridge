@@ -2,6 +2,7 @@
 #define AUDIO_BRIDGE_EDITOR_WIDGETS_H_
 
 #include <string>
+#include "vstgui4/vstgui/lib/controls/cknob.h"
 
 #include "vstgui4/vstgui/lib/ccolor.h"
 #include "vstgui4/vstgui/lib/cfont.h"
@@ -29,6 +30,27 @@ inline constexpr auto kText = VSTGUI::CColor(0xe7, 0xf4, 0xfb);
 inline constexpr auto kMuted = VSTGUI::CColor(0x77, 0x94, 0xa8);
 inline constexpr auto kDanger = VSTGUI::CColor(0xff, 0x74, 0x74);
 }  // namespace palette
+
+class LinkSwitch final : public VSTGUI::CTextButton {
+ public:
+  LinkSwitch(const VSTGUI::CRect& rect, VSTGUI::IControlListener* listener, int tag);
+  void draw(VSTGUI::CDrawContext* context) override;
+};
+
+class RotaryKnob final : public VSTGUI::CKnob {
+ public:
+  RotaryKnob(const VSTGUI::CRect& rect, VSTGUI::IControlListener* listener,
+             int tag, bool delay);
+  void draw(VSTGUI::CDrawContext* context) override;
+  VSTGUI::CMouseEventResult onMouseDown(VSTGUI::CPoint& where,
+      const VSTGUI::CButtonState& buttons) override;
+  VSTGUI::CMouseEventResult onMouseMoved(VSTGUI::CPoint& where,
+      const VSTGUI::CButtonState& buttons) override;
+
+ private:
+  VSTGUI::CCoord drag_start_x_ = 0;
+
+};
 
 class LevelMeter final : public VSTGUI::CView {
  public:

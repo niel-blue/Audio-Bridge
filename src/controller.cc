@@ -31,18 +31,30 @@ auto PLUGIN_API Controller::initialize(Steinberg::FUnknown* const context)
     return result;
   }
   parameters.addParameter(new Steinberg::Vst::RangeParameter(
-      STR16("Input Gain"), kInputGain, STR16("dB"), kMinimumGainDb,
+      STR16("Input Gain L"), kInputGain, STR16("dB"), kMinimumGainDb,
       kMaximumGainDb, 0.0, 0, Steinberg::Vst::ParameterInfo::kCanAutomate));
   parameters.addParameter(new Steinberg::Vst::RangeParameter(
-      STR16("Output Gain"), kOutputGain, STR16("dB"), kMinimumGainDb,
+      STR16("Output Gain L"), kOutputGain, STR16("dB"), kMinimumGainDb,
       kMaximumGainDb, 0.0, 0, Steinberg::Vst::ParameterInfo::kCanAutomate));
   parameters.addParameter(new Steinberg::Vst::Parameter(
       STR16("WASAPI Exclusive"), kExclusive, nullptr, 0.0, 1,
       Steinberg::Vst::ParameterInfo::kCanAutomate));
   parameters.addParameter(new Steinberg::Vst::RangeParameter(
       STR16("Output Delay"), kOutputDelay, STR16("ms"), 0.0,
-      kMaximumOutputDelayMs, 0.0, 0,
+      kMaximumDelayMs, 0.0, 0,
       Steinberg::Vst::ParameterInfo::kCanAutomate));
+  parameters.addParameter(new Steinberg::Vst::RangeParameter(
+      STR16("Input Delay"), kInputDelay, STR16("ms"), 0.0,
+      kMaximumDelayMs, 0.0, 0,
+      Steinberg::Vst::ParameterInfo::kCanAutomate));
+  parameters.addParameter(new Steinberg::Vst::RangeParameter(STR16("Input Gain R"), kInputGainRight, STR16("dB"), kMinimumGainDb, kMaximumGainDb, 0.0, 0, Steinberg::Vst::ParameterInfo::kCanAutomate));
+  parameters.addParameter(new Steinberg::Vst::RangeParameter(STR16("Output Gain R"), kOutputGainRight, STR16("dB"), kMinimumGainDb, kMaximumGainDb, 0.0, 0, Steinberg::Vst::ParameterInfo::kCanAutomate));
+  parameters.addParameter(new Steinberg::Vst::Parameter(STR16("Input Link"), kInputLink, nullptr, 1.0, 1, Steinberg::Vst::ParameterInfo::kCanAutomate));
+  parameters.addParameter(new Steinberg::Vst::Parameter(STR16("Output Link"), kOutputLink, nullptr, 1.0, 1, Steinberg::Vst::ParameterInfo::kCanAutomate));
+  parameters.addParameter(new Steinberg::Vst::Parameter(STR16("Input Mute L"), kInputMuteLeft, nullptr, 0.0, 1, Steinberg::Vst::ParameterInfo::kCanAutomate));
+  parameters.addParameter(new Steinberg::Vst::Parameter(STR16("Input Mute R"), kInputMuteRight, nullptr, 0.0, 1, Steinberg::Vst::ParameterInfo::kCanAutomate));
+  parameters.addParameter(new Steinberg::Vst::Parameter(STR16("Output Mute L"), kOutputMuteLeft, nullptr, 0.0, 1, Steinberg::Vst::ParameterInfo::kCanAutomate));
+  parameters.addParameter(new Steinberg::Vst::Parameter(STR16("Output Mute R"), kOutputMuteRight, nullptr, 0.0, 1, Steinberg::Vst::ParameterInfo::kCanAutomate));
   return kResultTrue;
 }
 
@@ -65,6 +77,23 @@ auto PLUGIN_API Controller::getState(IBStream* const state) -> tresult {
   return state::Write(state, CurrentState()) ? kResultTrue : kResultFalse;
 }
 
+auto PLUGIN_API Controller::setParamNormalized(ParamID id, ParamValue value) -> tresult {
+  const auto result = EditController::setParamNormalized(id, value);
+  if (result != Steinberg::kResultTrue) return result;
+  for (const auto input : {true, false}) {
+    const auto left = input ? kInputGain : kOutputGain;
+    const auto right = input ? kInputGainRight : kOutputGainRight;
+    const auto link = input ? kInputLink : kOutputLink;
+    if (getParamNormalized(link) > 0.5) {
+      if (id == left || id == right)
+        EditController::setParamNormalized(id == left ? right : left, value);
+      else if (id == link)
+        EditController::setParamNormalized(right, getParamNormalized(left));
+    }
+  }
+  return result;
+}
+
 void Controller::SyncParameterStateToProcessor() {
   SendStateToProcessor(CurrentState(), false);
 }
@@ -75,6 +104,16 @@ auto Controller::CurrentState() -> state::Data {
   data.output_gain_db = GainDbFromNormalized(getParamNormalized(kOutputGain));
   data.output_delay_ms =
       DelayMsFromNormalized(getParamNormalized(kOutputDelay));
+  data.input_delay_ms =
+      DelayMsFromNormalized(getParamNormalized(kInputDelay));
+  data.input_gain_right_db = GainDbFromNormalized(getParamNormalized(kInputGainRight));
+  data.output_gain_right_db = GainDbFromNormalized(getParamNormalized(kOutputGainRight));
+  data.input_link = getParamNormalized(kInputLink) > 0.5;
+  data.output_link = getParamNormalized(kOutputLink) > 0.5;
+  data.input_mute_left = getParamNormalized(kInputMuteLeft) > 0.5;
+  data.input_mute_right = getParamNormalized(kInputMuteRight) > 0.5;
+  data.output_mute_left = getParamNormalized(kOutputMuteLeft) > 0.5;
+  data.output_mute_right = getParamNormalized(kOutputMuteRight) > 0.5;
   data.exclusive = getParamNormalized(kExclusive) > 0.5;
   auto ignored_exclusive = false;
   GetDeviceSelection(data.input_id, data.output_id, ignored_exclusive);
@@ -83,13 +122,23 @@ auto Controller::CurrentState() -> state::Data {
 
 void Controller::ApplyState(const state::Data& data) {
   static_cast<void>(
-      setParamNormalized(kInputGain, GainDbToNormalized(data.input_gain_db)));
-  static_cast<void>(setParamNormalized(
+      EditController::setParamNormalized(kInputGain, GainDbToNormalized(data.input_gain_db)));
+  static_cast<void>(EditController::setParamNormalized(
       kOutputGain, GainDbToNormalized(data.output_gain_db)));
-  static_cast<void>(setParamNormalized(
+  static_cast<void>(EditController::setParamNormalized(
       kOutputDelay, DelayMsToNormalized(data.output_delay_ms)));
+  static_cast<void>(EditController::setParamNormalized(
+      kInputDelay, DelayMsToNormalized(data.input_delay_ms)));
   static_cast<void>(
-      setParamNormalized(kExclusive, data.exclusive ? 1.0 : 0.0));
+      EditController::setParamNormalized(kExclusive, data.exclusive ? 1.0 : 0.0));
+  static_cast<void>(EditController::setParamNormalized(kInputGainRight, GainDbToNormalized(data.input_gain_right_db)));
+  static_cast<void>(EditController::setParamNormalized(kOutputGainRight, GainDbToNormalized(data.output_gain_right_db)));
+  static_cast<void>(EditController::setParamNormalized(kInputLink, data.input_link ? 1.0 : 0.0));
+  static_cast<void>(EditController::setParamNormalized(kOutputLink, data.output_link ? 1.0 : 0.0));
+  static_cast<void>(EditController::setParamNormalized(kInputMuteLeft, data.input_mute_left ? 1.0 : 0.0));
+  static_cast<void>(EditController::setParamNormalized(kInputMuteRight, data.input_mute_right ? 1.0 : 0.0));
+  static_cast<void>(EditController::setParamNormalized(kOutputMuteLeft, data.output_mute_left ? 1.0 : 0.0));
+  static_cast<void>(EditController::setParamNormalized(kOutputMuteRight, data.output_mute_right ? 1.0 : 0.0));
   SetDeviceSelection(data.input_id, data.output_id, data.exclusive);
 }
 

@@ -21,7 +21,7 @@
 namespace audio_bridge::vst {
 namespace {
 constexpr double kBaseEditorWidth = 300.0;
-constexpr double kBaseEditorHeight = 320.0;
+constexpr double kBaseEditorHeight = 380.0;
 }  // namespace
 
 Editor::Editor(void* const controller)
@@ -32,7 +32,7 @@ Editor::Editor(void* const controller)
                                           VSTGUI::kBoldFace)),
       strong_font_(new VSTGUI::CFontDesc("Segoe UI", 17.0,
                                          VSTGUI::kBoldFace)) {
-  setRect(Steinberg::ViewRect(0, 0, 300, 320));
+  setRect(Steinberg::ViewRect(0, 0, 300, 380));
 }
 
 Editor::~Editor() {
@@ -51,113 +51,92 @@ auto PLUGIN_API Editor::open(void* const parent,
   return frame != nullptr;
 }
 
+int32_t Editor::getKnobMode() const {
+  return VSTGUI::kLinearMode;
+}
+
 void Editor::BuildFrame(void* const parent) {
   const auto window = VSTGUI::CRect(0, 0, kBaseEditorWidth, kBaseEditorHeight);
-  constexpr auto kContentOffset = 3.0;
   frame = new VSTGUI::CFrame(window, this);
-  if (frame == nullptr) {
-    return;
-  }
   frame->setBackgroundColor(ui::palette::kBackground);
-  auto* const root = new VSTGUI::CViewContainer(window);
+  auto* root = new VSTGUI::CViewContainer(window);
   root->setBackgroundColor(ui::palette::kBackground);
   root->setTransparency(false);
   frame->addView(root);
-
-  auto* const title_label = ui::MakeLabel(
-      VSTGUI::CRect(10, 10, 129, 34), "Audio-Bridge", strong_font_,
-      ui::palette::kText);
-  root->addView(title_label);
-
-  auto* const subtitle_label = ui::MakeLabel(
-      VSTGUI::CRect(141, 14, 290, 30), "MULTI-BACKEND AUDIO ROUTER",
-      small_font_, ui::palette::kMuted);
-  root->addView(subtitle_label);
-  auto* const input_panel = new VSTGUI::CViewContainer(
-      VSTGUI::CRect(0, 31 + kContentOffset, 300, 143 + kContentOffset));
-  auto* const output_panel = new VSTGUI::CViewContainer(
-      VSTGUI::CRect(0, 145 + kContentOffset, 300, 292 + kContentOffset));
-  input_panel->setBackgroundColor(ui::palette::kBackground);
-  output_panel->setBackgroundColor(ui::palette::kBackground);
-  root->addView(input_panel);
-  root->addView(output_panel);
-
-  input_menu_ = ui::AddDeviceMenu(input_panel, this, "ADDITIONAL INPUT",
-                                  heading_font_, small_font_);
-  input_refresh_ = new VSTGUI::CTextButton(
-      VSTGUI::CRect(234, 4, 290, 19), this, -1, "REFRESH");
-  input_refresh_->setFont(small_font_);
-  input_refresh_->setTextColor(ui::palette::kText);
-  input_refresh_->setTextColorHighlighted(ui::palette::kText);
-  input_refresh_->setFrameColor(ui::palette::kAccent);
-  input_refresh_->setFrameColorHighlighted(ui::palette::kAccent);
-  auto* const refresh_gradient = VSTGUI::CGradient::create(
-      0, 1, ui::palette::kPanelRaised, ui::palette::kPanelRaised);
-  auto* const refresh_gradient_pressed = VSTGUI::CGradient::create(
-      0, 1, ui::palette::kReset, ui::palette::kReset);
-  input_refresh_->setGradient(refresh_gradient);
-  input_refresh_->setGradientHighlighted(refresh_gradient_pressed);
-  refresh_gradient->forget();
-  refresh_gradient_pressed->forget();
-  input_refresh_->setRoundRadius(2.0);
-  input_refresh_->setFrameWidth(1.0);
-  input_refresh_->setTextMargin(1.0);
-  input_panel->addView(input_refresh_);
-  output_menu_ = ui::AddDeviceMenu(output_panel, this, "ADDITIONAL OUTPUT",
-                                   heading_font_, small_font_);
-  input_meter_ = ui::AddLevelMeter(input_panel, 52);
-  output_meter_ = ui::AddLevelMeter(output_panel, 52);
-
-  input_panel->addView(ui::MakeLabel(VSTGUI::CRect(10, 63, 140, 75),
-                                     "INPUT GAIN", small_font_,
-                                     ui::palette::kMuted));
-  output_panel->addView(ui::MakeLabel(VSTGUI::CRect(10, 63, 140, 75),
-                                      "OUTPUT GAIN", small_font_,
-                                      ui::palette::kMuted));
-
-  const auto input_gain = ui::AddParameterControl(
-      input_panel, this, small_font_, static_cast<int>(kInputGain), 76,
-      static_cast<float>(kMinimumGainDb),
-      static_cast<float>(kMaximumGainDb), 0.0F, 1.0F, "0.0 dB");
-  input_gain_ = input_gain.slider;
-  input_reset_ = input_gain.reset;
-  input_gain_edit_ = input_gain.edit;
-
-  const auto output_gain = ui::AddParameterControl(
-      output_panel, this, small_font_, static_cast<int>(kOutputGain), 76,
-      static_cast<float>(kMinimumGainDb),
-      static_cast<float>(kMaximumGainDb), 0.0F, 1.0F, "0.0 dB");
-  output_gain_ = output_gain.slider;
-  output_reset_ = output_gain.reset;
-  output_gain_edit_ = output_gain.edit;
-
-  output_panel->addView(ui::MakeLabel(VSTGUI::CRect(10, 103, 140, 115),
-                                      "OUTPUT DELAY", small_font_,
-                                      ui::palette::kMuted));
-  const auto output_delay = ui::AddParameterControl(
-      output_panel, this, small_font_, static_cast<int>(kOutputDelay), 116,
-      0.0F, static_cast<float>(kMaximumOutputDelayMs), 0.0F, 10.0F,
-      "0.0 ms");
-  output_delay_ = output_delay.slider;
-  output_delay_reset_ = output_delay.reset;
-  output_delay_edit_ = output_delay.edit;
-
-  exclusive_checkbox_ = new VSTGUI::CCheckBox(
-      VSTGUI::CRect(10, 290 + kContentOffset, 144, 316 + kContentOffset),
-      this, static_cast<int>(kExclusive), "WASAPI EXCLUSIVE");
-  exclusive_checkbox_->setFont(small_font_);
-  exclusive_checkbox_->setFontColor(ui::palette::kText);
-  exclusive_checkbox_->setBoxFrameColor(ui::palette::kBorder);
-  exclusive_checkbox_->setBoxFillColor(ui::palette::kPanelRaised);
-  exclusive_checkbox_->setCheckMarkColor(ui::palette::kAccent);
-  root->addView(exclusive_checkbox_);
-
-  status_label_ = ui::MakeLabel(
-      VSTGUI::CRect(143, 290 + kContentOffset, 290, 316 + kContentOffset),
-      "●  OFF", small_font_,
-      ui::palette::kMuted);
-  status_label_->setHoriAlign(VSTGUI::CHoriTxtAlign::kRightText);
-  root->addView(status_label_);
+  root->addView(ui::MakeLabel(VSTGUI::CRect(10,1,140,29), "Audio-Bridge", strong_font_, ui::palette::kText));
+  auto* subtitle = ui::MakeLabel(VSTGUI::CRect(153,7,290,23), "MULTI-BACKEND AUDIO ROUTER", small_font_, ui::palette::kMuted);
+  auto* subtitle_font = new VSTGUI::CFontDesc("Segoe UI", 8);
+  subtitle->setFont(subtitle_font); subtitle_font->forget(); root->addView(subtitle);
+  auto* compact_font = new VSTGUI::CFontDesc("Segoe UI", 8);
+  auto button = [&](VSTGUI::CViewContainer* parent, VSTGUI::CRect rect, const char* text, int tag, bool toggle=false) {
+    auto* c = new VSTGUI::CTextButton(rect, this, tag, text,
+        toggle ? VSTGUI::CTextButton::kOnOffStyle : VSTGUI::CTextButton::kKickStyle);
+    c->setFont(compact_font); c->setTextColor(ui::palette::kText);
+    c->setTextColorHighlighted(ui::palette::kText);
+    c->setFrameColor(ui::palette::kAccent); c->setFrameColorHighlighted(ui::palette::kAccent);
+    auto* normal = VSTGUI::CGradient::create(0,1,ui::palette::kBackground,ui::palette::kBackground);
+    auto* pressed = VSTGUI::CGradient::create(0,1,ui::palette::kReset,ui::palette::kReset);
+    c->setGradient(normal); c->setGradientHighlighted(pressed); normal->forget(); pressed->forget();
+    c->setRoundRadius(2); c->setFrameWidth(1); c->setTextMargin(0); parent->addView(c); return c;
+  };
+  auto edit = [&](VSTGUI::CViewContainer* parent, VSTGUI::CRect rect, const char* text, bool framed=false) {
+    auto* c = new VSTGUI::CTextEdit(rect, this, -1, text, nullptr,
+        framed ? 0 : VSTGUI::CParamDisplay::kNoFrame);
+    c->setFont(compact_font); c->setFontColor(ui::palette::kText);
+    c->setBackColor(ui::palette::kBackground); c->setHoriAlign(VSTGUI::kCenterText);
+    if (framed) {
+      c->setFont(small_font_);
+      c->setBackColor(ui::palette::kPanelRaised);
+      c->setFrameColor(ui::palette::kButtonBorder);
+      c->setTextInset(VSTGUI::CPoint(4,0));
+    }
+    c->setImmediateTextChange(false); parent->addView(c); return c;
+  };
+  for (int section=0; section<2; ++section) {
+    auto& c = sections_[section]; const bool input = section==0;
+    const double y = input ? 29 : 191;
+    auto* panel = new VSTGUI::CViewContainer(VSTGUI::CRect(0,y,300,y+160));
+    panel->setBackgroundColor(ui::palette::kBackground); root->addView(panel);
+    auto* menu = ui::AddDeviceMenu(panel,this,input ? "INPUT" : "ADDITIONAL OUTPUT",heading_font_,small_font_);
+    if(input) { input_menu_=menu; input_refresh_=button(panel,VSTGUI::CRect(240,4,290,18),"REFRESH",-1); }
+    else { output_menu_=menu; output_menu_->removeAllEntry(); output_menu_->addEntry("HOST OUTPUT"); }
+    auto* meter=ui::AddLevelMeter(panel,51);
+    if(input) input_meter_=meter; else output_meter_=meter;
+    // Framed panels, without adding a native child window or resize behavior.
+    const auto box = [&](VSTGUI::CRect r) {
+      auto* b = new VSTGUI::CTextLabel(r,"",nullptr,0);
+      b->setBackColor(ui::palette::kBackground); b->setFrameColor(ui::palette::kBorder);
+      b->setMouseEnabled(false); panel->addView(b);
+    };
+    box(VSTGUI::CRect(10,60,150,157)); box(VSTGUI::CRect(154,60,290,157));
+    panel->addView(ui::MakeLabel(VSTGUI::CRect(14,62,106,75),input ? "INPUT GAIN" : "OUTPUT GAIN",small_font_,ui::palette::kMuted));
+    c.reset=button(panel,VSTGUI::CRect(111,63,145,76),"RESET",-1);
+    panel->addView(ui::MakeLabel(VSTGUI::CRect(158,62,251,75),input ? "INPUT DELAY" : "OUTPUT DELAY",small_font_,ui::palette::kMuted));
+    c.delay_reset=button(panel,VSTGUI::CRect(252,63,286,76),"RESET",-1);
+    c.link=new ui::LinkSwitch(VSTGUI::CRect(60,77,98,116),this,input ? kInputLink : kOutputLink);
+    panel->addView(c.link);
+    for(int ch=0;ch<2;++ch) {
+      const double x=ch==0 ? 17 : 99;
+      c.gain[ch]=new ui::RotaryKnob(VSTGUI::CRect(x,79,x+40,119),this,
+          input ? (ch==0 ? kInputGain : kInputGainRight) : (ch==0 ? kOutputGain : kOutputGainRight),false);
+      panel->addView(c.gain[ch]);
+      auto* label=ui::MakeLabel(VSTGUI::CRect(x,119,x+40,129),ch==0 ? "L" : "R",compact_font,ui::palette::kText);
+      label->setHoriAlign(VSTGUI::kCenterText); panel->addView(label);
+      c.gain_edit[ch]=edit(panel,VSTGUI::CRect(x-4,129,x+44,141),"0.0 dB");
+      c.mute[ch]=button(panel,VSTGUI::CRect(x-3,142,x+43,154),"MUTE",
+          input ? (ch==0 ? kInputMuteLeft : kInputMuteRight) : (ch==0 ? kOutputMuteLeft : kOutputMuteRight),true);
+    }
+    c.delay=new ui::RotaryKnob(VSTGUI::CRect(195,80,249,134),this,input ? kInputDelay : kOutputDelay,true);
+    panel->addView(c.delay);
+    c.delay_edit=edit(panel,VSTGUI::CRect(186,135,258,153),"0.0 ms",true);
+  }
+  compact_font->forget();
+  exclusive_checkbox_ = new VSTGUI::CCheckBox(VSTGUI::CRect(10,354,150,378),this,kExclusive,"WASAPI EXCLUSIVE");
+  exclusive_checkbox_->setFont(small_font_); exclusive_checkbox_->setFontColor(ui::palette::kText);
+  exclusive_checkbox_->setBoxFrameColor(ui::palette::kBorder); exclusive_checkbox_->setBoxFillColor(ui::palette::kPanelRaised);
+  exclusive_checkbox_->setCheckMarkColor(ui::palette::kAccent); root->addView(exclusive_checkbox_);
+  status_label_=ui::MakeLabel(VSTGUI::CRect(150,354,290,378),"●  OFF",small_font_,ui::palette::kMuted);
+  status_label_->setHoriAlign(VSTGUI::kRightText); root->addView(status_label_);
 
   RefreshDevices();
   timer_ = VSTGUI::owned(new VSTGUI::CVSTGUITimer(
@@ -181,36 +160,12 @@ void PLUGIN_API Editor::close() {
   output_menu_ = nullptr;
   input_refresh_ = nullptr;
   exclusive_checkbox_ = nullptr;
-  input_gain_ = nullptr;
-  output_gain_ = nullptr;
-  output_delay_ = nullptr;
-  input_reset_ = nullptr;
-  output_reset_ = nullptr;
-  output_delay_reset_ = nullptr;
-  input_gain_edit_ = nullptr;
-  output_gain_edit_ = nullptr;
-  output_delay_edit_ = nullptr;
+  for (auto& section : sections_) section = {};
   status_label_ = nullptr;
   input_meter_ = nullptr;
   output_meter_ = nullptr;
   input_ids_.clear();
   output_ids_.clear();
-}
-
-void Editor::UpdateHostRouteLabels(const bool input_connected,
-                                   const bool output_connected) {
-  const auto update = [](VSTGUI::COptionMenu* const menu,
-                         const bool /*connected*/, const char* const /*host_label*/) {
-    if (menu == nullptr) {
-      return;
-    }
-    if (auto* const host_entry = menu->getEntry(0); host_entry != nullptr) {
-      host_entry->setTitle("OFF");
-    }
-    menu->invalid();
-  };
-  update(input_menu_, input_connected, "DAW / HOST INPUT");
-  update(output_menu_, output_connected, "DAW / HOST OUTPUT");
 }
 
 void Editor::RefreshDevices() {
@@ -219,8 +174,8 @@ void Editor::RefreshDevices() {
   }
   input_menu_->removeAllEntry();
   output_menu_->removeAllEntry();
-  input_menu_->addEntry("OFF");
-  output_menu_->addEntry("OFF");
+  input_menu_->addEntry("HOST INPUT");
+  output_menu_->addEntry("HOST OUTPUT");
   input_ids_.clear();
   output_ids_.clear();
   auto* const controller = static_cast<Controller*>(getController());
@@ -230,10 +185,7 @@ void Editor::RefreshDevices() {
   auto input_id = std::string{};
   auto output_id = std::string{};
   auto exclusive = false;
-  auto host_input_connected = false;
-  auto host_output_connected = false;
   controller->GetDeviceSelection(input_id, output_id, exclusive);
-  controller->GetHostRoutes(host_input_connected, host_output_connected);
 
   auto applications =
       audio::EnumerateApplicationInputs(audio::CurrentApplicationInputExclusions());
@@ -265,7 +217,7 @@ void Editor::RefreshDevices() {
                 device.name + (device.is_default ? "  (Default)" : "");
     output_menu_->addEntry(name.c_str());
   }
-  UpdateHostRouteLabels(host_input_connected, host_output_connected);
+
   auto find_index = [](const std::vector<std::string>& ids,
                        const std::string& id) {
     auto it = std::find(ids.begin(), ids.end(), id);
@@ -289,31 +241,37 @@ void Editor::RefreshParameters() {
   if (controller == nullptr) {
     return;
   }
-  const auto update_slider_and_text =
-      [controller](VSTGUI::CHorizontalSlider* const slider,
-                   VSTGUI::CTextEdit* const edit, const ParamID id,
-                   const bool is_delay) {
-        if (slider == nullptr || slider->isEditing()) {
-          return;
-        }
-        slider->setValueNormalized(static_cast<float>(
-            std::clamp(controller->getParamNormalized(id), 0.0, 1.0)));
-        if (edit != nullptr &&
-            (edit->getFrame() == nullptr ||
-             edit->getFrame()->getFocusView() != edit)) {
-          if (is_delay) {
-            const auto value = static_cast<double>(slider->getValue());
-            edit->setText(ui::FormatMilliseconds(value).c_str());
-          } else {
-            edit->setText(ui::FormatDb(static_cast<double>(slider->getValue()))
-                              .c_str());
-          }
-          edit->invalid();
-        }
-      };
-  update_slider_and_text(input_gain_, input_gain_edit_, kInputGain, false);
-  update_slider_and_text(output_gain_, output_gain_edit_, kOutputGain, false);
-  update_slider_and_text(output_delay_, output_delay_edit_, kOutputDelay, true);
+  const auto update = [&](ui::RotaryKnob* knob, VSTGUI::CTextEdit* edit, ParamID id, bool delay) {
+    if (!knob || knob->isEditing()) return;
+    const auto normalized = controller->getParamNormalized(id);
+    const auto value = delay ? DelayMsFromNormalized(normalized) : GainDbFromNormalized(normalized);
+    // The knob has a narrower range than typed/stored delay values.
+    knob->setValue(static_cast<float>(std::clamp(value,
+        static_cast<double>(knob->getMin()), static_cast<double>(knob->getMax()))));
+    knob->invalid();
+    if (edit && !edit->getPlatformTextEdit()) {
+      edit->setText((delay ? ui::FormatMilliseconds(value) : ui::FormatDb(value)).c_str());
+      edit->invalid();
+    }
+  };
+  for(int section=0;section<2;++section) {
+    auto& c=sections_[section]; const bool input=section==0;
+    update(c.gain[0],c.gain_edit[0],input ? kInputGain : kOutputGain,false);
+    update(c.gain[1],c.gain_edit[1],input ? kInputGainRight : kOutputGainRight,false);
+    update(c.delay,c.delay_edit,input ? kInputDelay : kOutputDelay,true);
+    // CTextButton stages its next value on mouse-down and commits on mouse-up.
+    // Polling must not overwrite that staged value while a gesture is active.
+    if (!c.link->isEditing()) {
+      c.link->setValue(static_cast<float>(controller->getParamNormalized(input ? kInputLink : kOutputLink)));
+      c.link->setTitle(c.link->getValue()>0.5F ? "LINK ON" : "LINK OFF");
+      c.link->invalid();
+    }
+    for(int ch=0;ch<2;++ch) {
+      if (c.mute[ch]->isEditing()) continue;
+      c.mute[ch]->setValue(static_cast<float>(controller->getParamNormalized(input ? (ch==0 ? kInputMuteLeft : kInputMuteRight) : (ch==0 ? kOutputMuteLeft : kOutputMuteRight))));
+      c.mute[ch]->invalid();
+    }
+  }
   if (exclusive_checkbox_ != nullptr && !exclusive_checkbox_->isEditing()) {
     exclusive_checkbox_->setValue(static_cast<float>(std::clamp(
         controller->getParamNormalized(kExclusive), 0.0, 1.0)));
@@ -359,10 +317,30 @@ void Editor::SendParameterEdit(const ParamID id, const double normalized) {
   if (controller == nullptr) {
     return;
   }
+  bool active_gesture = false;
+  for (const auto& section : sections_) {
+    for (auto* knob : section.gain)
+      active_gesture |= knob && knob->getTag()==static_cast<int>(id) && knob->isEditing();
+    active_gesture |= section.delay && section.delay->getTag()==static_cast<int>(id) && section.delay->isEditing();
+    active_gesture |= section.link && section.link->getTag()==static_cast<int>(id) && section.link->isEditing();
+    for (auto* mute : section.mute)
+      active_gesture |= mute && mute->getTag()==static_cast<int>(id) && mute->isEditing();
+  }
+  if (!active_gesture) controller->beginEdit(id);
   if (controller->setParamNormalized(id, normalized) == Steinberg::kResultTrue) {
     controller->performEdit(id, controller->getParamNormalized(id));
+    for(const bool input : {true,false}) {
+      const auto left=input ? kInputGain : kOutputGain;
+      const auto right=input ? kInputGainRight : kOutputGainRight;
+      const auto link=input ? kInputLink : kOutputLink;
+      if(controller->getParamNormalized(link)>0.5 && (id==left || id==right || id==link)) {
+        const auto peer=id==right ? left : right;
+        controller->beginEdit(peer); controller->performEdit(peer,controller->getParamNormalized(peer)); controller->endEdit(peer);
+      }
+    }
     controller->SyncParameterStateToProcessor();
   }
+  if (!active_gesture) controller->endEdit(id);
 }
 
 void Editor::SetGainText(VSTGUI::CTextEdit* const edit, const double value) {
@@ -425,7 +403,7 @@ void Editor::PollState() {
   auto host_output_connected = false;
   controller->GetDeviceSelection(input_id, output_id, exclusive);
   controller->GetHostRoutes(host_input_connected, host_output_connected);
-  UpdateHostRouteLabels(host_input_connected, host_output_connected);
+
   if (input_meter_ != nullptr) {
     if (input_id.empty() && !host_input_connected) {
       input_meter_->Clear();
@@ -463,68 +441,43 @@ void Editor::valueChanged(CControl* const control) {
     SendDeviceConfig();
     return;
   }
-  if (control == input_reset_ || control == output_reset_) {
-    const auto id = control == input_reset_ ? kInputGain : kOutputGain;
-    auto* const slider = control == input_reset_ ? input_gain_ : output_gain_;
-    SendParameterEdit(id, GainDbToNormalized(0.0));
-    if (slider != nullptr) {
-      slider->setValue(0.0F);
+  for(int section=0;section<2;++section) {
+    auto& c=sections_[section]; const bool input=section==0;
+    if(control==c.reset) {
+      const auto link = input ? kInputLink : kOutputLink;
+      const auto mute_left = input ? kInputMuteLeft : kOutputMuteLeft;
+      const auto mute_right = input ? kInputMuteRight : kOutputMuteRight;
+      SendParameterEdit(link, 1.0);
+      SendParameterEdit(input ? kInputGain : kOutputGain, GainDbToNormalized(0));
+      SendParameterEdit(input ? kInputGainRight : kOutputGainRight, GainDbToNormalized(0));
+      SendParameterEdit(mute_left, 0.0);
+      SendParameterEdit(mute_right, 0.0);
+      RefreshParameters(); return;
     }
-    SetGainText(control == input_reset_ ? input_gain_edit_ : output_gain_edit_,
-                0.0);
-    return;
-  }
-  if (control == output_delay_reset_) {
-    SendParameterEdit(kOutputDelay, DelayMsToNormalized(0.0));
-    if (output_delay_ != nullptr) {
-      output_delay_->setValue(0.0F);
+    if(control==c.delay_reset) {
+      SendParameterEdit(input ? kInputDelay : kOutputDelay,0); RefreshParameters(); return;
     }
-    SetDelayText(output_delay_edit_, 0.0);
-    return;
-  }
-  if (control == input_gain_edit_ || control == output_gain_edit_) {
-    auto* const edit = control == input_gain_edit_ ? input_gain_edit_
-                                                    : output_gain_edit_;
-    auto* const slider = control == input_gain_edit_ ? input_gain_
-                                                       : output_gain_;
-    const auto id = control == input_gain_edit_ ? kInputGain : kOutputGain;
-    auto value = 0.0;
-    if (!ui::ParseValue(edit->getText().getString(), "dB", kMinimumGainDb,
-                        kMaximumGainDb, value)) {
-      value = slider != nullptr ? slider->getValue() : 0.0;
+    if(control==c.link || control==c.mute[0] || control==c.mute[1]) {
+      SendParameterEdit(control->getTag(),control->getValueNormalized()); RefreshParameters(); return;
     }
-    if (slider != nullptr) {
-      slider->setValue(static_cast<float>(value));
+    for(int ch=0;ch<2;++ch) {
+      if(control==c.gain[ch] || control==c.gain_edit[ch]) {
+        double value=c.gain[ch]->getValue();
+        if(control==c.gain_edit[ch]) ui::ParseValue(c.gain_edit[ch]->getText().getString(),"dB",kMinimumGainDb,kMaximumGainDb,value);
+        SendParameterEdit(c.gain[ch]->getTag(),GainDbToNormalized(value));
+        SetGainText(c.gain_edit[ch],value); RefreshParameters(); return;
+      }
     }
-    SetGainText(edit, value);
-    SendParameterEdit(id, GainDbToNormalized(value));
-    return;
-  }
-  if (control == output_delay_edit_) {
-    auto value = 0.0;
-    if (!ui::ParseValue(output_delay_edit_->getText().getString(), "ms", 0.0,
-                        kMaximumOutputDelayMs, value)) {
-      value = output_delay_ != nullptr ? output_delay_->getValue() : 0.0;
+    if(control==c.delay || control==c.delay_edit) {
+      double value=c.delay->getValue();
+      if(control==c.delay_edit) {
+        auto* controller=static_cast<Controller*>(getController());
+        value=DelayMsFromNormalized(controller->getParamNormalized(c.delay->getTag()));
+        ui::ParseValue(c.delay_edit->getText().getString(),"ms",0,kMaximumDelayMs,value);
+      }
+      SendParameterEdit(c.delay->getTag(),DelayMsToNormalized(value));
+      SetDelayText(c.delay_edit,value); RefreshParameters(); return;
     }
-    if (output_delay_ != nullptr) {
-      output_delay_->setValue(static_cast<float>(value));
-    }
-    SetDelayText(output_delay_edit_, value);
-    SendParameterEdit(kOutputDelay, DelayMsToNormalized(value));
-    return;
-  }
-  if (control == input_gain_ || control == output_gain_) {
-    auto* const edit = control == input_gain_ ? input_gain_edit_
-                                               : output_gain_edit_;
-    SetGainText(edit, control->getValue());
-    SendParameterEdit(static_cast<ParamID>(control->getTag()),
-                      control->getValueNormalized());
-    return;
-  }
-  if (control == output_delay_) {
-    SetDelayText(output_delay_edit_, control->getValue());
-    SendParameterEdit(kOutputDelay, control->getValueNormalized());
-    return;
   }
 }
 

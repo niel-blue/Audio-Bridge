@@ -13,7 +13,7 @@
 namespace audio_bridge::state {
 namespace {
 
-constexpr std::uint32_t kCurrentVersion = 2U;
+constexpr std::uint32_t kCurrentVersion = 4U;
 constexpr std::size_t kMaximumStateBytes = 1U << 22;
 constexpr std::uint32_t kMaximumDeviceIdBytes = 1U << 20;
 
@@ -33,6 +33,15 @@ auto Encode(const Data& value) -> std::string {
   AppendValue(value.input_gain_db, result);
   AppendValue(value.output_gain_db, result);
   AppendValue(value.output_delay_ms, result);
+  AppendValue(value.input_delay_ms, result);
+  AppendValue<double>(value.input_gain_right_db, result);
+  AppendValue<double>(value.output_gain_right_db, result);
+  AppendValue<std::uint8_t>(value.input_link, result);
+  AppendValue<std::uint8_t>(value.output_link, result);
+  AppendValue<std::uint8_t>(value.input_mute_left, result);
+  AppendValue<std::uint8_t>(value.input_mute_right, result);
+  AppendValue<std::uint8_t>(value.output_mute_left, result);
+  AppendValue<std::uint8_t>(value.output_mute_right, result);
   AppendValue<std::uint8_t>(value.exclusive ? 1U : 0U, result);
   const auto append_string = [&result](const std::string& text) {
     AppendValue(static_cast<std::uint32_t>(text.size()), result);
@@ -60,18 +69,48 @@ auto Decode(const std::string& bytes, Data& value) -> bool {
   std::uint32_t version = 0U;
   std::uint8_t exclusive = 0U;
   if (!read(&version, sizeof(version)) ||
-      (version != 1U && version != kCurrentVersion) ||
+      (version < 1U || version > kCurrentVersion) ||
       !read(&value.input_gain_db, sizeof(value.input_gain_db)) ||
       !read(&value.output_gain_db, sizeof(value.output_gain_db)) ||
       (version >= 2U &&
        !read(&value.output_delay_ms, sizeof(value.output_delay_ms))) ||
-      !read(&exclusive, sizeof(exclusive))) {
+      (version >= 3U &&
+       !read(&value.input_delay_ms, sizeof(value.input_delay_ms)))) {
     return false;
   }
   if (version == 1U) {
     value.output_delay_ms = 0.0;
   }
+  if (version < 3U) {
+    value.input_delay_ms = 0.0;
+  }
 
+  if (version >= 4U) {
+    if (!read(&value.input_gain_right_db, sizeof(value.input_gain_right_db))) return false;
+    if (!read(&value.output_gain_right_db, sizeof(value.output_gain_right_db))) return false;
+    std::uint8_t input_link = 0;
+    if (!read(&input_link, sizeof(input_link))) return false;
+    value.input_link = input_link != 0;
+    std::uint8_t output_link = 0;
+    if (!read(&output_link, sizeof(output_link))) return false;
+    value.output_link = output_link != 0;
+    std::uint8_t input_mute_left = 0;
+    if (!read(&input_mute_left, sizeof(input_mute_left))) return false;
+    value.input_mute_left = input_mute_left != 0;
+    std::uint8_t input_mute_right = 0;
+    if (!read(&input_mute_right, sizeof(input_mute_right))) return false;
+    value.input_mute_right = input_mute_right != 0;
+    std::uint8_t output_mute_left = 0;
+    if (!read(&output_mute_left, sizeof(output_mute_left))) return false;
+    value.output_mute_left = output_mute_left != 0;
+    std::uint8_t output_mute_right = 0;
+    if (!read(&output_mute_right, sizeof(output_mute_right))) return false;
+    value.output_mute_right = output_mute_right != 0;
+  } else {
+    value.input_gain_right_db = value.input_gain_db;
+    value.output_gain_right_db = value.output_gain_db;
+  }
+  if (!read(&exclusive, sizeof(exclusive))) return false;
   const auto read_string = [&read](std::string& destination) -> bool {
     std::uint32_t size = 0U;
     if (!read(&size, sizeof(size)) || size > kMaximumDeviceIdBytes) {
@@ -97,7 +136,13 @@ auto Sanitize(Data value) -> Data {
       std::clamp(value.output_gain_db, vst::kMinimumGainDb,
                  vst::kMaximumGainDb);
   value.output_delay_ms =
-      std::clamp(value.output_delay_ms, 0.0, vst::kMaximumOutputDelayMs);
+      std::clamp(value.output_delay_ms, 0.0, vst::kMaximumDelayMs);
+  value.input_delay_ms =
+      std::clamp(value.input_delay_ms, 0.0, vst::kMaximumDelayMs);
+  value.input_gain_right_db = std::clamp(value.input_gain_right_db, vst::kMinimumGainDb, vst::kMaximumGainDb);
+  value.output_gain_right_db = std::clamp(value.output_gain_right_db, vst::kMinimumGainDb, vst::kMaximumGainDb);
+  if (value.input_link) value.input_gain_right_db = value.input_gain_db;
+  if (value.output_link) value.output_gain_right_db = value.output_gain_db;
   return value;
 }
 
