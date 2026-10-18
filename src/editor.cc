@@ -20,7 +20,7 @@
 
 namespace audio_bridge::vst {
 namespace {
-constexpr double kBaseEditorWidth = 320.0;
+constexpr double kBaseEditorWidth = 300.0;
 constexpr double kBaseEditorHeight = 320.0;
 }  // namespace
 
@@ -32,7 +32,7 @@ Editor::Editor(void* const controller)
                                           VSTGUI::kBoldFace)),
       strong_font_(new VSTGUI::CFontDesc("Segoe UI", 17.0,
                                          VSTGUI::kBoldFace)) {
-  setRect(Steinberg::ViewRect(0, 0, 320, 320));
+  setRect(Steinberg::ViewRect(0, 0, 300, 320));
 }
 
 Editor::~Editor() {
@@ -51,29 +51,6 @@ auto PLUGIN_API Editor::open(void* const parent,
   return frame != nullptr;
 }
 
-Steinberg::tresult PLUGIN_API Editor::canResize() {
-  return Steinberg::kResultTrue;
-}
-
-Steinberg::tresult PLUGIN_API Editor::checkSizeConstraint(
-    Steinberg::ViewRect* const size) {
-  if (size == nullptr) {
-    return Steinberg::kInvalidArgument;
-  }
-  const auto width = std::max<Steinberg::int32>(300, size->right - size->left);
-  size->right = size->left + width;
-  size->bottom = size->top + 320;
-  return Steinberg::kResultTrue;
-}
-
-Steinberg::tresult PLUGIN_API Editor::onSize(
-    Steinberg::ViewRect* const newSize) {
-  if (newSize == nullptr || frame == nullptr) {
-    return Steinberg::kInvalidArgument;
-  }
-  return VSTGUIEditor::onSize(newSize);
-}
-
 void Editor::BuildFrame(void* const parent) {
   const auto window = VSTGUI::CRect(0, 0, kBaseEditorWidth, kBaseEditorHeight);
   constexpr auto kContentOffset = 3.0;
@@ -82,72 +59,59 @@ void Editor::BuildFrame(void* const parent) {
     return;
   }
   frame->setBackgroundColor(ui::palette::kBackground);
-  frame->setAutosizingEnabled(true);
   auto* const root = new VSTGUI::CViewContainer(window);
   root->setBackgroundColor(ui::palette::kBackground);
   root->setTransparency(false);
-  root->setAutosizeFlags(VSTGUI::kAutosizeLeft | VSTGUI::kAutosizeRight |
-                        VSTGUI::kAutosizeTop | VSTGUI::kAutosizeBottom);
-  root->setAutosizingEnabled(true);
   frame->addView(root);
 
   auto* const title_label = ui::MakeLabel(
-      VSTGUI::CRect(0, 10, 119, 34), "Audio-Bridge", strong_font_,
+      VSTGUI::CRect(10, 10, 129, 34), "Audio-Bridge", strong_font_,
       ui::palette::kText);
-  title_label->setAutosizeFlags(VSTGUI::kAutosizeLeft |
-                                VSTGUI::kAutosizeTop);
   root->addView(title_label);
 
   auto* const subtitle_label = ui::MakeLabel(
-      VSTGUI::CRect(151, 14, 320, 30), "MULTI-BACKEND AUDIO ROUTER",
+      VSTGUI::CRect(141, 14, 290, 30), "MULTI-BACKEND AUDIO ROUTER",
       small_font_, ui::palette::kMuted);
-  subtitle_label->setAutosizeFlags(VSTGUI::kAutosizeRight |
-                                   VSTGUI::kAutosizeTop);
   root->addView(subtitle_label);
   auto* const input_panel = new VSTGUI::CViewContainer(
-      VSTGUI::CRect(0, 31 + kContentOffset, 320, 143 + kContentOffset));
+      VSTGUI::CRect(0, 31 + kContentOffset, 300, 143 + kContentOffset));
   auto* const output_panel = new VSTGUI::CViewContainer(
-      VSTGUI::CRect(0, 145 + kContentOffset, 320, 292 + kContentOffset));
+      VSTGUI::CRect(0, 145 + kContentOffset, 300, 292 + kContentOffset));
   input_panel->setBackgroundColor(ui::palette::kBackground);
-  input_panel->setAutosizeFlags(VSTGUI::kAutosizeLeft |
-                                  VSTGUI::kAutosizeRight);
-  input_panel->setAutosizingEnabled(true);
   output_panel->setBackgroundColor(ui::palette::kBackground);
-  output_panel->setAutosizeFlags(VSTGUI::kAutosizeLeft |
-                                   VSTGUI::kAutosizeRight);
-  output_panel->setAutosizingEnabled(true);
   root->addView(input_panel);
   root->addView(output_panel);
 
   input_menu_ = ui::AddDeviceMenu(input_panel, this, "ADDITIONAL INPUT",
                                   heading_font_, small_font_);
   input_refresh_ = new VSTGUI::CTextButton(
-      VSTGUI::CRect(264, 4, 320, 19), this, -1, "REFRESH");
+      VSTGUI::CRect(234, 4, 290, 19), this, -1, "REFRESH");
   input_refresh_->setFont(small_font_);
   input_refresh_->setTextColor(ui::palette::kText);
   input_refresh_->setTextColorHighlighted(ui::palette::kText);
-  input_refresh_->setFrameColor(ui::palette::kAccentDim);
+  input_refresh_->setFrameColor(ui::palette::kAccent);
   input_refresh_->setFrameColorHighlighted(ui::palette::kAccent);
   auto* const refresh_gradient = VSTGUI::CGradient::create(
-      0, 1, ui::palette::kPanelRaised, ui::palette::kAccentDim);
+      0, 1, ui::palette::kPanelRaised, ui::palette::kPanelRaised);
+  auto* const refresh_gradient_pressed = VSTGUI::CGradient::create(
+      0, 1, ui::palette::kReset, ui::palette::kReset);
   input_refresh_->setGradient(refresh_gradient);
-  input_refresh_->setGradientHighlighted(refresh_gradient);
+  input_refresh_->setGradientHighlighted(refresh_gradient_pressed);
   refresh_gradient->forget();
+  refresh_gradient_pressed->forget();
   input_refresh_->setRoundRadius(2.0);
   input_refresh_->setFrameWidth(1.0);
   input_refresh_->setTextMargin(1.0);
-  input_refresh_->setAutosizeFlags(VSTGUI::kAutosizeRight |
-                                     VSTGUI::kAutosizeTop);
   input_panel->addView(input_refresh_);
   output_menu_ = ui::AddDeviceMenu(output_panel, this, "ADDITIONAL OUTPUT",
                                    heading_font_, small_font_);
   input_meter_ = ui::AddLevelMeter(input_panel, 52);
   output_meter_ = ui::AddLevelMeter(output_panel, 52);
 
-  input_panel->addView(ui::MakeLabel(VSTGUI::CRect(0, 63, 130, 75),
+  input_panel->addView(ui::MakeLabel(VSTGUI::CRect(10, 63, 140, 75),
                                      "INPUT GAIN", small_font_,
                                      ui::palette::kMuted));
-  output_panel->addView(ui::MakeLabel(VSTGUI::CRect(0, 63, 130, 75),
+  output_panel->addView(ui::MakeLabel(VSTGUI::CRect(10, 63, 140, 75),
                                       "OUTPUT GAIN", small_font_,
                                       ui::palette::kMuted));
 
@@ -167,7 +131,7 @@ void Editor::BuildFrame(void* const parent) {
   output_reset_ = output_gain.reset;
   output_gain_edit_ = output_gain.edit;
 
-  output_panel->addView(ui::MakeLabel(VSTGUI::CRect(0, 103, 130, 115),
+  output_panel->addView(ui::MakeLabel(VSTGUI::CRect(10, 103, 140, 115),
                                       "OUTPUT DELAY", small_font_,
                                       ui::palette::kMuted));
   const auto output_delay = ui::AddParameterControl(
@@ -179,24 +143,20 @@ void Editor::BuildFrame(void* const parent) {
   output_delay_edit_ = output_delay.edit;
 
   exclusive_checkbox_ = new VSTGUI::CCheckBox(
-      VSTGUI::CRect(0, 290 + kContentOffset, 134, 316 + kContentOffset),
+      VSTGUI::CRect(10, 290 + kContentOffset, 144, 316 + kContentOffset),
       this, static_cast<int>(kExclusive), "WASAPI EXCLUSIVE");
   exclusive_checkbox_->setFont(small_font_);
   exclusive_checkbox_->setFontColor(ui::palette::kText);
   exclusive_checkbox_->setBoxFrameColor(ui::palette::kBorder);
   exclusive_checkbox_->setBoxFillColor(ui::palette::kPanelRaised);
   exclusive_checkbox_->setCheckMarkColor(ui::palette::kAccent);
-  exclusive_checkbox_->setAutosizeFlags(VSTGUI::kAutosizeLeft |
-                                       VSTGUI::kAutosizeTop);
   root->addView(exclusive_checkbox_);
 
   status_label_ = ui::MakeLabel(
-      VSTGUI::CRect(153, 290 + kContentOffset, 320, 316 + kContentOffset),
-      "●  OFF  /  Select a device to start", small_font_,
+      VSTGUI::CRect(143, 290 + kContentOffset, 290, 316 + kContentOffset),
+      "●  OFF", small_font_,
       ui::palette::kMuted);
   status_label_->setHoriAlign(VSTGUI::CHoriTxtAlign::kRightText);
-  status_label_->setAutosizeFlags(VSTGUI::kAutosizeLeft | VSTGUI::kAutosizeRight |
-                                 VSTGUI::kAutosizeTop);
   root->addView(status_label_);
 
   RefreshDevices();
@@ -437,11 +397,11 @@ void Editor::UpdateStatus() {
                         : (status == audio::Status::kActive
                                ? "●  ACTIVE"
                                : (status == audio::Status::kUnavailable
-                                       ? "●  UNAVAILABLE  " + error
+                                       ? "●  UNAVAILABLE"
                                        : (host_route_connected
                                               ? "●  DAW / HOST"
-                                              : "●  OFF  /  Select a device to start")));
-  status_label_->setText(text.c_str());
+                                              : "●  OFF")));
+  status_label_->setText(text);
   status_label_->setFontColor(
       status == audio::Status::kUnavailable
           ? ui::palette::kDanger

@@ -40,26 +40,46 @@ class SolidBitmap final : public VSTGUI::CBitmap {
 class SliderTrackBitmap final : public VSTGUI::CBitmap {
  public:
   SliderTrackBitmap(const int width, const int height,
-                    const VSTGUI::CColor fill, const VSTGUI::CColor frame)
-      : CBitmap(width, height), fill_(fill), frame_(frame) {}
+                    const VSTGUI::CColor color)
+      : CBitmap(width, height), color_(color) {}
 
   void draw(VSTGUI::CDrawContext* const context, const VSTGUI::CRect& rect,
             const VSTGUI::CPoint& offset = VSTGUI::CPoint(0, 0),
             const float /*alpha*/ = 1.0F) override {
     auto target = rect;
     target.offset(offset);
-    constexpr auto kTrackHeight = 10.0;
-    target.top += (target.getHeight() - kTrackHeight) * 0.5;
-    target.bottom = target.top + kTrackHeight;
-    context->setFillColor(fill_);
-    context->drawRect(target, VSTGUI::kDrawFilled);
-    context->setFrameColor(frame_);
-    context->drawRect(target, VSTGUI::kDrawStroked);
+    const auto center_y = target.top + target.getHeight() * 0.5;
+    context->setDrawMode(VSTGUI::kAntiAliasing);
+    context->setLineStyle(
+        VSTGUI::CLineStyle(VSTGUI::CLineStyle::kLineCapRound));
+    context->setLineWidth(2.0);
+    context->setFrameColor(color_);
+    context->drawLine(
+        VSTGUI::CPoint(target.left + 2.5, center_y),
+        VSTGUI::CPoint(target.right - 2.5, center_y));
   }
 
  private:
-  VSTGUI::CColor fill_;
-  VSTGUI::CColor frame_;
+  VSTGUI::CColor color_;
+};
+
+class SliderHandleBitmap final : public VSTGUI::CBitmap {
+ public:
+  explicit SliderHandleBitmap(const VSTGUI::CColor color)
+      : CBitmap(5, 5), color_(color) {}
+
+  void draw(VSTGUI::CDrawContext* const context, const VSTGUI::CRect& rect,
+            const VSTGUI::CPoint& offset = VSTGUI::CPoint(0, 0),
+            const float /*alpha*/ = 1.0F) override {
+    auto target = rect;
+    target.offset(offset);
+    context->setDrawMode(VSTGUI::kAntiAliasing);
+    context->setFillColor(color_);
+    context->drawEllipse(target, VSTGUI::kDrawFilled);
+  }
+
+ private:
+  VSTGUI::CColor color_;
 };
 
 class DeviceMenu final : public VSTGUI::COptionMenu {
@@ -74,7 +94,7 @@ class DeviceMenu final : public VSTGUI::COptionMenu {
     const auto rect = getViewSize();
     auto arrow = rect;
     arrow.left = arrow.right - 24.0;
-    context->setFillColor(palette::kControlBackground);
+    context->setFillColor(palette::kBackground);
     context->drawRect(arrow, VSTGUI::kDrawFilled);
     context->setFrameColor(palette::kBorder);
     context->drawLine(VSTGUI::CPoint(arrow.left, arrow.top),
@@ -151,17 +171,13 @@ auto AddDeviceMenu(VSTGUI::CViewContainer* const panel,
                    VSTGUI::IControlListener* const listener,
                    const char* const title, VSTGUI::CFontRef heading_font,
                    VSTGUI::CFontRef menu_font) -> VSTGUI::COptionMenu* {
-  auto* const title_label = MakeLabel(VSTGUI::CRect(0, 5, 320, 19), title,
+  auto* const title_label = MakeLabel(VSTGUI::CRect(10, 5, 290, 19), title,
                                       heading_font, palette::kAccent);
-  title_label->setAutosizeFlags(VSTGUI::kAutosizeLeft | VSTGUI::kAutosizeRight |
-                                VSTGUI::kAutosizeTop);
   panel->addView(title_label);
-  auto* const background = new SolidBitmap(320, 26, palette::kPanelRaised,
+  auto* const background = new SolidBitmap(280, 26, palette::kPanelRaised,
                                             palette::kBorder);
-  auto* const menu = new DeviceMenu(VSTGUI::CRect(0, 22, 320, 48), listener,
+  auto* const menu = new DeviceMenu(VSTGUI::CRect(10, 22, 290, 48), listener,
                                     -1, background);
-  menu->setAutosizeFlags(VSTGUI::kAutosizeLeft | VSTGUI::kAutosizeRight |
-                         VSTGUI::kAutosizeTop);
   menu->setFont(menu_font);
   menu->setFontColor(palette::kText);
   menu->setHoriAlign(VSTGUI::CHoriTxtAlign::kLeftText);
@@ -175,9 +191,7 @@ auto AddDeviceMenu(VSTGUI::CViewContainer* const panel,
 auto AddLevelMeter(VSTGUI::CViewContainer* const panel,
                    const double top) -> LevelMeter* {
   auto* const meter =
-      new LevelMeter(VSTGUI::CRect(0, top, 320, top + 6));
-  meter->setAutosizeFlags(VSTGUI::kAutosizeLeft | VSTGUI::kAutosizeRight |
-                          VSTGUI::kAutosizeTop);
+      new LevelMeter(VSTGUI::CRect(10, top, 290, top + 6));
   panel->addView(meter);
   return meter;
 }
@@ -192,27 +206,24 @@ auto AddParameterControl(
   auto* const edit_background =
       new SolidBitmap(50, 20, palette::kPanelRaised, palette::kBorder);
   result.edit = new VSTGUI::CTextEdit(
-      VSTGUI::CRect(0, top, 50, top + 20), listener, -1, default_text,
+      VSTGUI::CRect(10, top, 60, top + 20), listener, -1, default_text,
       edit_background);
   result.edit->setFont(font);
   result.edit->setFontColor(palette::kText);
   result.edit->setHoriAlign(VSTGUI::CHoriTxtAlign::kRightText);
   result.edit->setTextInset(VSTGUI::CPoint(4, 0));
   result.edit->setImmediateTextChange(false);
-  result.edit->setAutosizeFlags(VSTGUI::kAutosizeLeft | VSTGUI::kAutosizeTop);
   panel->addView(result.edit);
   edit_background->forget();
 
-  auto* const background = new SliderTrackBitmap(
-      210, 18, palette::kControlBackground, palette::kBorder);
-  auto* const handle =
-      new SolidBitmap(8, 18, palette::kAccent, palette::kAccent);
+  auto* const background =
+      new SliderTrackBitmap(168, 18, palette::kSliderTrack);
+  auto* const handle = new SliderHandleBitmap(palette::kAccent);
   result.slider = new VSTGUI::CHorizontalSlider(
-      VSTGUI::CRect(60, top + 1, 270, top + 19), listener, tag, 60, 262,
+      VSTGUI::CRect(70, top + 1, 238, top + 19), listener, tag, 70, 233,
       handle, background, VSTGUI::CPoint(0, 0),
       VSTGUI::CSliderBase::kLeft);
-  result.slider->setAutosizeFlags(VSTGUI::kAutosizeLeft | VSTGUI::kAutosizeRight |
-                             VSTGUI::kAutosizeTop);
+  result.slider->setOffsetHandle(VSTGUI::CPoint(0, 6.5));
   result.slider->setMin(minimum);
   result.slider->setMax(maximum);
   result.slider->setDefaultValue(default_value);
@@ -223,16 +234,16 @@ auto AddParameterControl(
   handle->forget();
 
   result.reset = new VSTGUI::CTextButton(
-      VSTGUI::CRect(270, top, 320, top + 20), listener, -1, "RESET");
+      VSTGUI::CRect(246, top, 290, top + 20), listener, -1, "RESET");
   result.reset->setFont(font);
   result.reset->setTextColor(palette::kText);
   result.reset->setTextColorHighlighted(palette::kText);
-  result.reset->setFrameColor(palette::kReset);
-  result.reset->setFrameColorHighlighted(palette::kResetPressed);
+  result.reset->setFrameColor(palette::kAccent);
+  result.reset->setFrameColorHighlighted(palette::kAccent);
   auto* const reset_gradient = VSTGUI::CGradient::create(
-      0, 1, palette::kReset, palette::kAccentDim);
+      0, 1, palette::kResetPressed, palette::kResetPressed);
   auto* const reset_gradient_pressed = VSTGUI::CGradient::create(
-      0, 1, palette::kResetPressed, palette::kReset);
+      0, 1, palette::kReset, palette::kReset);
   result.reset->setGradient(reset_gradient);
   result.reset->setGradientHighlighted(reset_gradient_pressed);
   reset_gradient->forget();
@@ -241,7 +252,6 @@ auto AddParameterControl(
   result.reset->setFrameWidth(1.0);
   result.reset->setTextMargin(1.0);
   result.reset->setTextAlignment(VSTGUI::kCenterText);
-  result.reset->setAutosizeFlags(VSTGUI::kAutosizeRight | VSTGUI::kAutosizeTop);
   panel->addView(result.reset);
   return result;
 }

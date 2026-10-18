@@ -16,16 +16,17 @@
 namespace audio_bridge::vst::ui {
 
 namespace palette {
-inline constexpr auto kBackground = VSTGUI::CColor(0x0c, 0x18, 0x2b);
-inline constexpr auto kPanelRaised = VSTGUI::CColor(0x12, 0x31, 0x4f);
-inline constexpr auto kControlBackground = VSTGUI::CColor(0x07, 0x14, 0x24);
-inline constexpr auto kBorder = VSTGUI::CColor(0x1d, 0x45, 0x65);
-inline constexpr auto kAccent = VSTGUI::CColor(0x4f, 0xc7, 0xff);
-inline constexpr auto kAccentDim = VSTGUI::CColor(0x12, 0x7b, 0xa1);
-inline constexpr auto kReset = VSTGUI::CColor(0x17, 0xa5, 0xd5);
-inline constexpr auto kResetPressed = VSTGUI::CColor(0x4f, 0xc7, 0xff);
-inline constexpr auto kText = VSTGUI::CColor(0xe6, 0xf4, 0xfd);
-inline constexpr auto kMuted = VSTGUI::CColor(0x74, 0x8e, 0xa4);
+inline constexpr auto kBackground = VSTGUI::CColor(0x0c, 0x16, 0x23);
+inline constexpr auto kPanelRaised = VSTGUI::CColor(0x14, 0x38, 0x56);
+inline constexpr auto kControlBackground = VSTGUI::CColor(0x24, 0x44, 0x5d);
+inline constexpr auto kSliderTrack = VSTGUI::CColor(0x1c, 0x4c, 0x6c);
+inline constexpr auto kBorder = VSTGUI::CColor(0x27, 0x49, 0x61);
+inline constexpr auto kAccent = VSTGUI::CColor(0x06, 0xc9, 0xff);
+inline constexpr auto kButtonBorder = VSTGUI::CColor(0x45, 0x6f, 0x89);
+inline constexpr auto kReset = VSTGUI::CColor(0x00, 0xb2, 0xeb);
+inline constexpr auto kResetPressed = VSTGUI::CColor(0x14, 0x38, 0x56);
+inline constexpr auto kText = VSTGUI::CColor(0xe7, 0xf4, 0xfb);
+inline constexpr auto kMuted = VSTGUI::CColor(0x77, 0x94, 0xa8);
 inline constexpr auto kDanger = VSTGUI::CColor(0xff, 0x74, 0x74);
 }  // namespace palette
 
