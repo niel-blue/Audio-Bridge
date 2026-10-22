@@ -60,7 +60,11 @@ auto PLUGIN_API Controller::initialize(Steinberg::FUnknown* const context)
 
 auto PLUGIN_API Controller::setComponentState(IBStream* const state)
     -> tresult {
-  return setState(state);
+  auto data = state::Data{};
+  if (!state::Read(state, data)) return kResultFalse;
+  ApplyState(data);
+  SendStateToProcessor(data, true);
+  return kResultTrue;
 }
 
 auto PLUGIN_API Controller::setState(IBStream* const state) -> tresult {
@@ -70,11 +74,23 @@ auto PLUGIN_API Controller::setState(IBStream* const state) -> tresult {
   }
   ApplyState(data);
   SendStateToProcessor(data, true);
+  std::uint32_t magic = 0;
+  std::uint8_t light = 0;
+  Steinberg::int32 bytes = 0;
+  const bool has_theme = state->read(&magic,sizeof(magic),&bytes)==kResultTrue &&
+      bytes==sizeof(magic) && magic==0x54484D31U &&
+      state->read(&light,sizeof(light),&bytes)==kResultTrue && bytes==sizeof(light) && light<=1;
+  SetLightTheme(has_theme && light != 0, false);
   return kResultTrue;
 }
 
 auto PLUGIN_API Controller::getState(IBStream* const state) -> tresult {
-  return state::Write(state, CurrentState()) ? kResultTrue : kResultFalse;
+  if (!state::Write(state, CurrentState())) return kResultFalse;
+  std::uint32_t magic = 0x54484D31U;
+  std::uint8_t light = light_theme_ ? 1 : 0;
+  return state->write(&magic,sizeof(magic))==kResultTrue &&
+      state->write(&light,sizeof(light))==kResultTrue
+      ? kResultTrue : kResultFalse;
 }
 
 auto PLUGIN_API Controller::setParamNormalized(ParamID id, ParamValue value) -> tresult {
@@ -94,6 +110,12 @@ auto PLUGIN_API Controller::setParamNormalized(ParamID id, ParamValue value) -> 
   return result;
 }
 
+void Controller::SetLightTheme(bool light, bool notify_host) {
+  const bool changed = light_theme_ != light;
+  light_theme_ = light;
+  if (editor_ && editor_->IsLightTheme() != light) editor_->SetLightTheme(light,false);
+  if (changed && notify_host) static_cast<void>(setDirty(true));
+}
 void Controller::SyncParameterStateToProcessor() {
   SendStateToProcessor(CurrentState(), false);
 }

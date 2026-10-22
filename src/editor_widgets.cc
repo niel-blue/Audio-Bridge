@@ -1,5 +1,6 @@
 #include "editor_widgets.h"
 #include "parameters.h"
+#include "ui/vst_base_controls.h"
 
 #include <algorithm>
 #include <cctype>
@@ -17,8 +18,8 @@ namespace {
 
 class SolidBitmap final : public VSTGUI::CBitmap {
  public:
-  SolidBitmap(const int width, const int height, const VSTGUI::CColor fill,
-              const VSTGUI::CColor frame)
+  SolidBitmap(const int width, const int height, const VSTGUI::CColor& fill,
+              const VSTGUI::CColor& frame)
       : CBitmap(width, height), fill_(fill), frame_(frame) {}
 
   void draw(VSTGUI::CDrawContext* const context, const VSTGUI::CRect& rect,
@@ -35,14 +36,14 @@ class SolidBitmap final : public VSTGUI::CBitmap {
   }
 
  private:
-  VSTGUI::CColor fill_;
-  VSTGUI::CColor frame_;
+  const VSTGUI::CColor& fill_;
+  const VSTGUI::CColor& frame_;
 };
 
 class SliderTrackBitmap final : public VSTGUI::CBitmap {
  public:
   SliderTrackBitmap(const int width, const int height,
-                    const VSTGUI::CColor color)
+                    const VSTGUI::CColor& color)
       : CBitmap(width, height), color_(color) {}
 
   void draw(VSTGUI::CDrawContext* const context, const VSTGUI::CRect& rect,
@@ -62,12 +63,12 @@ class SliderTrackBitmap final : public VSTGUI::CBitmap {
   }
 
  private:
-  VSTGUI::CColor color_;
+  const VSTGUI::CColor& color_;
 };
 
 class SliderHandleBitmap final : public VSTGUI::CBitmap {
  public:
-  explicit SliderHandleBitmap(const VSTGUI::CColor color)
+  explicit SliderHandleBitmap(const VSTGUI::CColor& color)
       : CBitmap(5, 5), color_(color) {}
 
   void draw(VSTGUI::CDrawContext* const context, const VSTGUI::CRect& rect,
@@ -81,73 +82,76 @@ class SliderHandleBitmap final : public VSTGUI::CBitmap {
   }
 
  private:
-  VSTGUI::CColor color_;
+  const VSTGUI::CColor& color_;
 };
 
 class DeviceMenu final : public VSTGUI::COptionMenu {
  public:
   DeviceMenu(const VSTGUI::CRect& rect,
              VSTGUI::IControlListener* const listener, const int tag,
-             VSTGUI::CBitmap* const background)
-      : COptionMenu(rect, listener, tag, background) {}
+             VSTGUI::CBitmap* const background, const Palette& colors)
+      : COptionMenu(rect, listener, tag, background), colors_(colors) {}
 
   void draw(VSTGUI::CDrawContext* const context) override {
+    setFontColor(colors_.kText);
     COptionMenu::draw(context);
     const auto rect = getViewSize();
     auto arrow = rect;
     arrow.left = arrow.right - 24.0;
-    context->setFillColor(palette::kBackground);
+    context->setFillColor(colors_.kBackground);
     context->drawRect(arrow, VSTGUI::kDrawFilled);
-    context->setFrameColor(palette::kBorder);
+    context->setFrameColor(colors_.kBorder);
     context->drawLine(VSTGUI::CPoint(arrow.left, arrow.top),
                       VSTGUI::CPoint(arrow.left, arrow.bottom));
 
     const auto center_x = arrow.left + arrow.getWidth() * 0.5;
     const auto center_y = arrow.top + arrow.getHeight() * 0.5;
-    context->setFrameColor(palette::kAccent);
+    context->setFrameColor(colors_.kAccent);
     context->setLineWidth(1.5);
     context->drawLine(VSTGUI::CPoint(center_x - 4.0, center_y - 2.0),
                       VSTGUI::CPoint(center_x, center_y + 2.0));
     context->drawLine(VSTGUI::CPoint(center_x, center_y + 2.0),
                       VSTGUI::CPoint(center_x + 4.0, center_y - 2.0));
-    context->setFrameColor(palette::kBorder);
+    context->setFrameColor(colors_.kBorder);
     context->drawRect(rect, VSTGUI::kDrawStroked);
     setDirty(false);
   }
+ private:
+  const Palette& colors_;
 };
 
 }  // namespace
 
-LinkSwitch::LinkSwitch(const VSTGUI::CRect& rect,VSTGUI::IControlListener* listener,int tag)
-    : CTextButton(rect,listener,tag,"LINK ON",VSTGUI::CTextButton::kOnOffStyle) {}
+LinkSwitch::LinkSwitch(const VSTGUI::CRect& rect,VSTGUI::IControlListener* listener,int tag, const Palette& colors)
+    : CTextButton(rect,listener,tag,"LINK ON",VSTGUI::CTextButton::kOnOffStyle), colors_(colors) {}
 
 void LinkSwitch::draw(VSTGUI::CDrawContext* context) {
   const auto r=getViewSize(); const double cx=(r.left+r.right)/2;
   const bool on=getValue()>0.5F;
   context->setDrawMode(VSTGUI::kAntiAliasing);
   context->setFont(VSTGUI::kNormalFontVerySmall);
-  context->setFontColor(on ? palette::kAccent : palette::kMuted);
+  context->setFontColor(on ? colors_.kAccent : colors_.kMuted);
   context->drawString(on ? "LINK ON" : "LINK OFF",VSTGUI::CRect(r.left,r.top,r.right,r.top+11),VSTGUI::kCenterText);
   auto capsule=VSTGUI::owned(context->createGraphicsPath());
   if(capsule) {
     capsule->addRoundRect(VSTGUI::CRect(cx-10,r.top+13,cx+10,r.top+23),5);
-    context->setFillColor(on ? palette::kPanelRaised : palette::kBackground);
-    context->setFrameColor(on ? palette::kAccent : palette::kMuted); context->setLineWidth(1);
+    context->setFillColor(on ? colors_.kPanelRaised : colors_.kBackground);
+    context->setFrameColor(on ? colors_.kAccent : colors_.kMuted); context->setLineWidth(1);
     context->drawGraphicsPath(capsule,VSTGUI::CDrawContext::kPathFilled);
     context->drawGraphicsPath(capsule,VSTGUI::CDrawContext::kPathStroked);
   }
-  context->setFillColor(on ? palette::kText : palette::kMuted);
+  context->setFillColor(on ? colors_.kText : colors_.kMuted);
   const double dot=cx+(on ? 5 : -5);
   context->drawEllipse(VSTGUI::CRect(dot-3,r.top+15,dot+3,r.top+21),VSTGUI::kDrawFilled);
-  context->setFrameColor(on ? palette::kAccent : palette::kMuted);context->setLineWidth(1.3);
+  context->setFrameColor(on ? colors_.kAccent : colors_.kMuted);context->setLineWidth(1.3);
   context->drawEllipse(VSTGUI::CRect(cx-6,r.top+28,cx+1,r.top+34),VSTGUI::kDrawStroked);
   context->drawEllipse(VSTGUI::CRect(cx-1,r.top+25,cx+6,r.top+31),VSTGUI::kDrawStroked);
   setDirty(false);
 }
 
 RotaryKnob::RotaryKnob(const VSTGUI::CRect& rect,
-    VSTGUI::IControlListener* listener, int tag, bool delay)
-    : CKnob(rect, listener, tag, nullptr, nullptr) {
+    VSTGUI::IControlListener* listener, int tag, bool delay, const Palette& colors)
+    : CKnob(rect, listener, tag, nullptr, nullptr), colors_(colors) {
   setMin(delay ? 0.0F : -20.0F);
   setMax(delay ? static_cast<float>(kMaximumKnobDelayMs) : 20.0F);
   setDefaultValue(0.0F);
@@ -191,25 +195,25 @@ void RotaryKnob::draw(VSTGUI::CDrawContext* context) {
     CKnob::addArc(path, VSTGUI::CRect(cx-rad,cy-rad,cx+rad,cy+rad),0.75*pi,1.5*pi*fraction);
     context->drawGraphicsPath(path,VSTGUI::CDrawContext::kPathStroked);
   };
-  arc(radius, 1, palette::kSliderTrack, 3.5);
-  arc(radius, getValueNormalized(), palette::kAccent, 2.5);
+  arc(radius, 1, colors_.kSliderTrack, 3.5);
+  arc(radius, getValueNormalized(), colors_.kAccent, 2.5);
   auto body = r; body.inset(8,8);
-  context->setFillColor(palette::kPanelRaised);
-  context->setFrameColor(palette::kButtonBorder); context->setLineWidth(1);
+  context->setFillColor(colors_.kPanelRaised);
+  context->setFrameColor(colors_.kButtonBorder); context->setLineWidth(1);
   auto body_path = VSTGUI::owned(context->createGraphicsPath());
   if (body_path) {
     body_path->addEllipse(body);
-    auto gradient=VSTGUI::owned(VSTGUI::CGradient::create(0,1,VSTGUI::CColor(30,55,72),palette::kBackground));
+    auto gradient=VSTGUI::owned(VSTGUI::CGradient::create(0,1,colors_.kKnobTop,colors_.kKnobBottom));
     context->fillLinearGradient(body_path,*gradient,VSTGUI::CPoint(cx,body.top),VSTGUI::CPoint(cx,body.bottom));
     context->drawGraphicsPath(body_path,VSTGUI::CDrawContext::kPathStroked);
   }
   const double angle = 0.75*pi + getValueNormalized()*1.5*pi;
-  context->setFrameColor(palette::kText); context->setLineWidth(1.5);
+  context->setFrameColor(colors_.kText); context->setLineWidth(vst_base::kKnobStyle.pointerWidth);
   context->drawLine(point(angle, radius*0.32), point(angle, radius-2));
   setDirty(false);
 }
 
-LevelMeter::LevelMeter(const VSTGUI::CRect& rect) : CView(rect) {
+LevelMeter::LevelMeter(const VSTGUI::CRect& rect, const Palette& colors) : CView(rect), colors_(colors) {
   setMouseEnabled(false);
 }
 
@@ -230,7 +234,7 @@ void LevelMeter::Clear() {
 
 void LevelMeter::draw(VSTGUI::CDrawContext* const context) {
   auto rect = getViewSize();
-  context->setFillColor(palette::kControlBackground);
+  context->setFillColor(colors_.kControlBackground);
   context->drawRect(rect, VSTGUI::kDrawFilled);
   rect.inset(1.0, 1.0);
   const auto db = level_ > 0.000001F ? 20.0F * std::log10(level_) : -60.0F;
@@ -238,11 +242,11 @@ void LevelMeter::draw(VSTGUI::CDrawContext* const context) {
   if (normalized > 0.0F) {
     auto active = rect;
     active.right = active.left + active.getWidth() * normalized;
-    context->setFillColor(level_ >= 1.0F ? palette::kDanger
-                                         : palette::kAccent);
+    context->setFillColor(level_ >= 1.0F ? colors_.kDanger
+                                         : colors_.kAccent);
     context->drawRect(active, VSTGUI::kDrawFilled);
   }
-  context->setFrameColor(palette::kBorder);
+  context->setFrameColor(colors_.kBorder);
   context->drawRect(rect, VSTGUI::kDrawStroked);
   setDirty(false);
 }
@@ -263,16 +267,16 @@ auto MakeLabel(const VSTGUI::CRect& rect, const char* const text,
 auto AddDeviceMenu(VSTGUI::CViewContainer* const panel,
                    VSTGUI::IControlListener* const listener,
                    const char* const title, VSTGUI::CFontRef heading_font,
-                   VSTGUI::CFontRef menu_font) -> VSTGUI::COptionMenu* {
+                   VSTGUI::CFontRef menu_font, const Palette& colors_) -> VSTGUI::COptionMenu* {
   auto* const title_label = MakeLabel(VSTGUI::CRect(10, 5, 290, 19), title,
-                                      heading_font, palette::kAccent);
+                                      heading_font, colors_.kAccent);
   panel->addView(title_label);
-  auto* const background = new SolidBitmap(280, 26, palette::kPanelRaised,
-                                            palette::kBorder);
+  auto* const background = new SolidBitmap(280, 26, colors_.kPanelRaised,
+                                            colors_.kBorder);
   auto* const menu = new DeviceMenu(VSTGUI::CRect(10, 22, 290, 48), listener,
-                                    -1, background);
+                                    -1, background, colors_);
   menu->setFont(menu_font);
-  menu->setFontColor(palette::kText);
+  menu->setFontColor(colors_.kText);
   menu->setHoriAlign(VSTGUI::CHoriTxtAlign::kLeftText);
   menu->setTextInset(VSTGUI::CPoint(8, 0));
   menu->addEntry("OFF");
@@ -282,9 +286,9 @@ auto AddDeviceMenu(VSTGUI::CViewContainer* const panel,
 }
 
 auto AddLevelMeter(VSTGUI::CViewContainer* const panel,
-                   const double top) -> LevelMeter* {
+                   const double top, const Palette& colors_) -> LevelMeter* {
   auto* const meter =
-      new LevelMeter(VSTGUI::CRect(10, top, 290, top + 6));
+      new LevelMeter(VSTGUI::CRect(10, top, 290, top + 6), colors_);
   panel->addView(meter);
   return meter;
 }
@@ -294,15 +298,15 @@ auto AddParameterControl(
     VSTGUI::IControlListener* const listener, VSTGUI::CFontRef font,
     const int tag, const double top, const float minimum, const float maximum,
     const float default_value, const float wheel_increment,
-    const char* const default_text) -> ParameterControl {
+    const char* const default_text, const Palette& colors_) -> ParameterControl {
   auto result = ParameterControl{};
   auto* const edit_background =
-      new SolidBitmap(50, 20, palette::kPanelRaised, palette::kBorder);
+      new SolidBitmap(50, 20, colors_.kPanelRaised, colors_.kBorder);
   result.edit = new VSTGUI::CTextEdit(
       VSTGUI::CRect(10, top, 60, top + 20), listener, -1, default_text,
       edit_background);
   result.edit->setFont(font);
-  result.edit->setFontColor(palette::kText);
+  result.edit->setFontColor(colors_.kText);
   result.edit->setHoriAlign(VSTGUI::CHoriTxtAlign::kRightText);
   result.edit->setTextInset(VSTGUI::CPoint(4, 0));
   result.edit->setImmediateTextChange(false);
@@ -310,8 +314,8 @@ auto AddParameterControl(
   edit_background->forget();
 
   auto* const background =
-      new SliderTrackBitmap(168, 18, palette::kSliderTrack);
-  auto* const handle = new SliderHandleBitmap(palette::kAccent);
+      new SliderTrackBitmap(168, 18, colors_.kSliderTrack);
+  auto* const handle = new SliderHandleBitmap(colors_.kAccent);
   result.slider = new VSTGUI::CHorizontalSlider(
       VSTGUI::CRect(70, top + 1, 238, top + 19), listener, tag, 70, 233,
       handle, background, VSTGUI::CPoint(0, 0),
@@ -329,14 +333,14 @@ auto AddParameterControl(
   result.reset = new VSTGUI::CTextButton(
       VSTGUI::CRect(246, top, 290, top + 20), listener, -1, "RESET");
   result.reset->setFont(font);
-  result.reset->setTextColor(palette::kText);
-  result.reset->setTextColorHighlighted(palette::kText);
-  result.reset->setFrameColor(palette::kAccent);
-  result.reset->setFrameColorHighlighted(palette::kAccent);
+  result.reset->setTextColor(colors_.kText);
+  result.reset->setTextColorHighlighted(colors_.kText);
+  result.reset->setFrameColor(colors_.kAccent);
+  result.reset->setFrameColorHighlighted(colors_.kAccent);
   auto* const reset_gradient = VSTGUI::CGradient::create(
-      0, 1, palette::kResetPressed, palette::kResetPressed);
+      0, 1, colors_.kResetPressed, colors_.kResetPressed);
   auto* const reset_gradient_pressed = VSTGUI::CGradient::create(
-      0, 1, palette::kReset, palette::kReset);
+      0, 1, colors_.kReset, colors_.kReset);
   result.reset->setGradient(reset_gradient);
   result.reset->setGradientHighlighted(reset_gradient_pressed);
   reset_gradient->forget();

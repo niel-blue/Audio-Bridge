@@ -182,6 +182,40 @@ int main(int argc,char** argv) {
   auto hwnd=CreateWindowW(wc.lpszClassName,L"Audio-Bridge Test",WS_POPUP,0,0,300,380,nullptr,nullptr,wc.hInstance,nullptr);
   auto* editor=new Editor(controller);check(editor->open(hwnd,VSTGUI::PlatformType::kHWND),"editor opens");
   check(editor->getFrame()->getViewSize().getWidth()==300&&editor->getFrame()->getViewSize().getHeight()==380,"fixed editor dimensions");
+  // Click the production theme button; changing colors must preserve all DSP state.
+  auto* theme=dynamic_cast<VSTGUI::CTextButton*>(find(editor->getFrame(),Editor::kThemeControlTag));
+  check(theme && theme->getViewSize().getWidth()==40 && theme->getViewSize().getHeight()==16,"compact theme switch");
+  check(theme->getFrameWidth()==0 && theme->getFrameColor()==VSTGUI::kTransparentCColor,
+        "Dark theme switch has no visible frame");
+  const auto click_theme=[&] {
+    const auto r=theme->getViewSize();VSTGUI::CPoint p((r.left+r.right)/2,(r.top+r.bottom)/2);
+    theme->onMouseDown(p,VSTGUI::CButtonState(VSTGUI::kLButton));pump(80);
+    theme->onMouseUp(p,VSTGUI::CButtonState(VSTGUI::kLButton));pump(60);
+  };
+  check(!editor->IsLightTheme(),"default theme is Dark");
+  click_theme();
+  check(editor->IsLightTheme() && controller->IsLightTheme(),"theme mouse click selects Light");
+  check(theme->getFrameWidth()==0 && theme->getFrameColor()==VSTGUI::kTransparentCColor,
+        "Light switch keeps its borderless style after recoloring");
+  check(editor->getFrame()->getBackgroundColor()==ui::Palette::From(true).kBackground,"Light background matches standard");
+  auto* gain_before=find(editor->getFrame(),kInputGain);
+  run();check(nearly(out_l[0],.1)&&nearly(out_r[0],.2),"theme preserves stereo audio output");
+  MemoryStream light_state;check(controller->getState(&light_state)==kResultTrue,"save Light controller state");
+  click_theme();check(!editor->IsLightTheme(),"theme mouse click returns Dark");
+  std::vector<VSTGUI::CTextEdit*> themed_delay;
+  delay_edits(editor->getFrame(),themed_delay);
+  for(auto* field:themed_delay)check(field->getFrameColor()==ui::kDarkPalette.kButtonBorder,"Dark border semantic role restored");
+  light_state.seek(0,IBStream::kIBSeekSet,nullptr);check(controller->setState(&light_state)==kResultTrue,"restore Light controller state");
+  check(editor->IsLightTheme(),"restoring controller state recolors open editor");
+  check(find(editor->getFrame(),kInputGain)==gain_before,"theme does not recreate controls");
+  {
+    auto* independent=new Controller;check(independent->initialize(host)==kResultTrue,"independent controller init");
+    auto* view=new Editor(independent);check(!view->IsLightTheme(),"another instance remains Dark");view->release();
+    independent->terminate();independent->release();
+  }
+  // Component state must not reset controller-only appearance.
+  MemoryStream component_state;processor->getState(&component_state);component_state.seek(0,IBStream::kIBSeekSet,nullptr);
+  controller->setComponentState(&component_state);check(editor->IsLightTheme(),"component sync keeps Light preference");
   // Exercise mouse-down/timer-refresh/mouse-up instead of setting button values directly.
   for(auto id : {kInputMuteLeft,kInputMuteRight,kOutputMuteLeft,kOutputMuteRight}) {
     auto* button=dynamic_cast<VSTGUI::CTextButton*>(find(editor->getFrame(),id));
@@ -272,6 +306,12 @@ int main(int argc,char** argv) {
   MemoryStream reset;state::Write(&reset,{});reset.seek(0,IBStream::kIBSeekSet,nullptr);controller->setState(&reset);
   MSG msg;for(int i=0;i<10;++i){while(PeekMessage(&msg,nullptr,0,0,PM_REMOVE)){TranslateMessage(&msg);DispatchMessage(&msg);}Sleep(10);}
   if(argc>1) snapshot(editor,argv[1]);
+  click_theme();check(editor->IsLightTheme(),"final Light snapshot selection");
+  if(argc>2) snapshot(editor,argv[2]);
+  editor->close();
+  check(editor->open(hwnd,VSTGUI::PlatformType::kHWND),"editor reopens");
+  check(editor->IsLightTheme() && editor->getFrame()->getBackgroundColor()==ui::Palette::From(true).kBackground,"reopen preserves Light");
+  controller->SetLightTheme(false,false);check(!editor->IsLightTheme(),"controller can recolor reopened view");
   editor->close();editor->release();DestroyWindow(hwnd);
   processor->disconnect(controller);controller->disconnect(processor);
   processor->terminate();controller->terminate();processor->release();controller->release();host->release();

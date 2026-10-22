@@ -45,6 +45,10 @@ class Controller final : public Steinberg::Vst::EditController {
   void GetHostRoutes(bool& input_connected, bool& output_connected) const;
   void GetAudioLevels(float& input_peak, float& output_peak) const;
   void GetAudioStatus(audio::Status& status, std::string& error) const;
+  bool IsLightTheme() const { return light_theme_; }
+  void SetLightTheme(bool light, bool notify_host = true);
+  void SetEditor(Editor* editor) { editor_ = editor; }
+  void ClearEditor(Editor* editor) { if (editor_ == editor) editor_ = nullptr; }
 
   // NOLINTNEXTLINE(readability-identifier-naming)
   static auto createInstance(void*) -> Steinberg::FUnknown* {
@@ -57,6 +61,8 @@ class Controller final : public Steinberg::Vst::EditController {
   void SendStateToProcessor(const state::Data& data, bool include_devices);
 
   mutable std::mutex device_mutex_;
+  bool light_theme_ = false;
+  Editor* editor_ = nullptr;
   std::string input_id_;
   std::string output_id_;
   bool exclusive_ = false;

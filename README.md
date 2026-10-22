@@ -3,7 +3,7 @@
 
 # Audio-Bridge
 
-現行リリース: `0.4.4`
+現行リリース: `0.4.5`
 
 <img width="300" height="320" alt="AB" src="https://github.com/user-attachments/assets/cba480aa-af64-45d9-8e93-ec554ddad276" />
 
@@ -52,3 +52,7 @@ cmake --build build --config Release
 ## ライセンス
 
 Audio-Bridgeは[MIT License](LICENSE)で公開します。依存ライブラリの表記は[THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)を参照してください。
+
+### Light / Dark
+
+ヘッダー右上のLight／Darkボタンでテーマを切り替えられます。LightはVST_baseの正式な共通配色です。選択はインスタンスごとに保持し、ホストがコントローラー状態を保存・復元する際に含まれます。画面は300×380pxの固定サイズです。

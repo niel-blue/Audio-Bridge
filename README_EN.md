@@ -2,7 +2,7 @@
 
 # Audio-Bridge
 
-Current release: `0.4.4`
+Current release: `0.4.5`
 
 <img width="319" height="330" alt="Audio-Bridge screenshot" src="https://github.com/user-attachments/assets/0fdaf94d-5f41-4e22-a824-215510e3a812" />
 
@@ -50,3 +50,7 @@ The pinned VST3 SDK version is downloaded automatically during the first configu
 ## License
 
 Audio-Bridge is released under the [MIT License](LICENSE). See [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) for third-party notices.
+
+### Light / Dark
+
+Use the Light/Dark button in the top-right corner of the header to switch themes. Light uses the shared VST_base palette. The selection is stored per instance and included when the host saves and restores controller state. The editor has a fixed size of 300 x 380 px.

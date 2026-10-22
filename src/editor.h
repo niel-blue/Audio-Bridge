@@ -35,6 +35,9 @@ class Editor final : public Steinberg::Vst::VSTGUIEditor,
   void PLUGIN_API close() SMTG_OVERRIDE;
   void valueChanged(CControl* control) SMTG_OVERRIDE;
   int32_t getKnobMode() const override;
+  void SetLightTheme(bool light, bool notify_host = true);
+  bool IsLightTheme() const { return colors_.light; }
+  static constexpr int kThemeControlTag = 10000;
 
  private:
   void BuildFrame(void* parent);
@@ -48,6 +51,8 @@ class Editor final : public Steinberg::Vst::VSTGUIEditor,
   void SetDelayText(VSTGUI::CTextEdit* edit, double value);
 
   VSTGUI::CFontRef font_ = nullptr;
+  ui::Palette colors_ = ui::Palette::From(false);
+  VSTGUI::CTextButton* theme_button_ = nullptr;
   VSTGUI::CFontRef small_font_ = nullptr;
   VSTGUI::CFontRef heading_font_ = nullptr;
   VSTGUI::CFontRef strong_font_ = nullptr;
