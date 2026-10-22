@@ -1,11 +1,12 @@
 
+
 [日本語](README.md) | [English](README_EN.md)
 
 # Audio-Bridge
 
 現行リリース: `0.4.5`
 
-<img width="300" height="320" alt="AB" src="https://github.com/user-attachments/assets/cba480aa-af64-45d9-8e93-ec554ddad276" />
+<img width="300" height="380" alt="AB" src="https://github.com/user-attachments/assets/e2d5968e-178a-4f6b-bd1b-d4be22774de3" />
 
 
 Audio-Bridgeは、DAWやVSTホスト上から直接音声をWindowsの音声デバイスへ入出力できるVSTプラグインです。ホストの通常入出力に加え、MME、DirectSound、WASAPIのデバイスと、再生中のアプリケーション単位の音声入力を選択できます。
